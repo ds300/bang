@@ -6,6 +6,7 @@ import {
   resolveToolCall,
   getActiveSession,
   getActiveLang,
+  setOnTurnComplete,
 } from "../agent/session.js";
 import {
   resetIdleTimer,
@@ -27,6 +28,11 @@ export async function wsRoute(app: FastifyInstance) {
       }
     }
 
+    // When the agent finishes a turn, clear thinking state
+    setOnTurnComplete(() => {
+      send({ type: "agent_thinking", thinking: false });
+    });
+
     socket.on("message", (raw) => {
       try {
         const msg = JSON.parse(raw.toString()) as ClientMessage;
@@ -43,13 +49,13 @@ export async function wsRoute(app: FastifyInstance) {
     socket.on("close", () => {
       app.log.info("Client disconnected");
       cancelIdleTimer();
+      setOnTurnComplete(null);
       endAgentSession();
     });
 
     async function handleMessage(msg: ClientMessage) {
       switch (msg.type) {
         case "new_session": {
-          // End previous session if active
           if (getActiveSession()) {
             cancelIdleTimer();
             endAgentSession();
@@ -63,10 +69,15 @@ export async function wsRoute(app: FastifyInstance) {
             sessionId: crypto.randomUUID(),
           });
 
+          // Start consuming the agent's output stream in the background
           streamingPromise = consumeAgentStream(session.messageStream());
 
-          const greeting = `The user wants to start a new session for learning this language. If this is a brand new language (no existing files), interview them to assess their level. Otherwise, present session type options using the present_options tool. YOU MUST use the present_options tool to present options — do not type them out as text.`;
-          session.sendMessage(greeting);
+          // Send the initial prompt — the agent will respond, and when it
+          // finishes, onTurnComplete fires agent_thinking: false
+          send({ type: "agent_thinking", thinking: true });
+          session.sendMessage(
+            `The user wants to start a new session for learning this language. If this is a brand new language (no existing files), interview them to assess their level. Otherwise, present session type options using the present_options tool. YOU MUST use the present_options tool to present options — do not type them out as text.`,
+          );
 
           break;
         }
@@ -81,11 +92,11 @@ export async function wsRoute(app: FastifyInstance) {
             return;
           }
 
-          // Reset idle timer on each user message
           resetIdleTimer(async () => {
             app.log.info("Idle timeout — processing session data");
           });
 
+          send({ type: "agent_thinking", thinking: true });
           session.sendMessage(msg.text);
           break;
         }
@@ -106,11 +117,11 @@ export async function wsRoute(app: FastifyInstance) {
               summary: "Session discarded.",
             });
           } else {
+            send({ type: "agent_thinking", thinking: true });
             session.sendMessage(
               "The user has ended the session. Please wrap up: summarize what was covered, suggest any file changes (items to move between current/review/learned), and update the session log file. After you're done, the session will be committed.",
             );
 
-            // Wait for the stream to finish, then commit
             if (streamingPromise) {
               streamingPromise.then(async () => {
                 try {
@@ -154,20 +165,10 @@ export async function wsRoute(app: FastifyInstance) {
 
     async function consumeAgentStream(stream: AsyncGenerator<SDKMessage>) {
       try {
-        let thinkingSent = false;
-
         for await (const message of stream) {
           if (message.type === "assistant") {
-            if (thinkingSent) {
-              send({ type: "agent_thinking", thinking: false });
-              thinkingSent = false;
-            }
-
             const textBlocks = message.message.content.filter(
               (block: { type: string }) => block.type === "text",
-            );
-            const toolUseBlocks = message.message.content.filter(
-              (block: { type: string }) => block.type === "tool_use",
             );
 
             for (const block of textBlocks) {
@@ -179,17 +180,7 @@ export async function wsRoute(app: FastifyInstance) {
                 });
               }
             }
-
-            if (toolUseBlocks.length > 0 && textBlocks.length === 0) {
-              if (!thinkingSent) {
-                send({ type: "agent_thinking", thinking: true });
-                thinkingSent = true;
-              }
-            }
           } else if (message.type === "result") {
-            if (thinkingSent) {
-              send({ type: "agent_thinking", thinking: false });
-            }
             if (message.subtype !== "success") {
               app.log.error(
                 { result: message },
@@ -202,6 +193,7 @@ export async function wsRoute(app: FastifyInstance) {
                 });
               }
             }
+            send({ type: "agent_thinking", thinking: false });
           }
         }
       } catch (err) {

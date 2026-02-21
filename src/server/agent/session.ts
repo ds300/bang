@@ -7,11 +7,6 @@ import {
 } from "../services/language-files.js";
 import type { ServerMessage } from "../../shared/protocol.js";
 
-interface PendingMessage {
-  resolve: (value: void) => void;
-  message: string;
-}
-
 interface SessionHandle {
   sendMessage: (text: string) => void;
   messageStream: () => AsyncGenerator<SDKMessage>;
@@ -20,6 +15,7 @@ interface SessionHandle {
 
 let activeSession: SessionHandle | null = null;
 let activeLang: string | null = null;
+let onTurnComplete: (() => void) | null = null;
 
 export function getActiveSession() {
   return activeSession;
@@ -27,6 +23,10 @@ export function getActiveSession() {
 
 export function getActiveLang() {
   return activeLang;
+}
+
+export function setOnTurnComplete(fn: (() => void) | null) {
+  onTurnComplete = fn;
 }
 
 export async function startAgentSession(
@@ -74,15 +74,15 @@ export async function startAgentSession(
     }
   });
 
-  // Read context BEFORE ensuring directory exists, so isNew detection works
   const ctx = await readLanguageContext(lang);
   await ensureLangDir(lang);
   const systemPrompt = buildSystemPrompt(ctx);
 
   // Message queue for streaming input mode (required for MCP tools)
-  const messageQueue: PendingMessage[] = [];
+  const messageQueue: Array<{ message: string }> = [];
   let waitingForMessage: ((value: void) => void) | null = null;
   let closed = false;
+  let isFirstMessage = true;
 
   async function* inputStream(): AsyncGenerator<{
     type: "user";
@@ -98,7 +98,13 @@ export async function startAgentSession(
             content: pending.message,
           },
         };
-        pending.resolve();
+        // Execution resumes HERE when the SDK calls next() again,
+        // meaning the agent has finished its turn (all tool calls resolved,
+        // all text emitted). This is our "turn complete" signal.
+        if (!isFirstMessage) {
+          onTurnComplete?.();
+        }
+        isFirstMessage = false;
       } else {
         await new Promise<void>((resolve) => {
           waitingForMessage = resolve;
@@ -134,14 +140,7 @@ export async function startAgentSession(
   });
 
   function sendMessage(text: string) {
-    const pending: PendingMessage = {
-      message: text,
-      resolve: () => {},
-    };
-    const promise = new Promise<void>((resolve) => {
-      pending.resolve = resolve;
-    });
-    messageQueue.push(pending);
+    messageQueue.push({ message: text });
     if (waitingForMessage) {
       waitingForMessage();
     }
