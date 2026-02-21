@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Button } from "@/components/ui/button";
 import { MessageBubble } from "./MessageBubble";
@@ -6,7 +6,9 @@ import { ExerciseCard } from "./ExerciseCard";
 import { OptionsCard } from "./OptionsCard";
 import { ChatInput } from "./ChatInput";
 import { LanguagePicker } from "./LanguagePicker";
-import { Loader2, Plus, Volume2, VolumeOff } from "lucide-react";
+import { SessionControls } from "./SessionControls";
+import { BreakdownDrawer } from "./BreakdownDrawer";
+import { Loader2, Volume2, VolumeOff } from "lucide-react";
 import { useTTS } from "@/hooks/useTTS";
 import type { useSession } from "@/hooks/useSession";
 
@@ -21,6 +23,10 @@ interface ChatProps {
 export function Chat({ session, audioEnabled, onToggleAudio }: ChatProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const { speak, stop } = useTTS(session.lang, audioEnabled);
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [breakdownSentence, setBreakdownSentence] = useState<string | null>(
+    null,
+  );
 
   useEffect(() => {
     if (scrollRef.current) {
@@ -33,10 +39,14 @@ export function Chat({ session, audioEnabled, onToggleAudio }: ChatProps) {
     session.agentThinking,
   ]);
 
-  // Stop TTS when audio is disabled
   useEffect(() => {
     if (!audioEnabled) stop();
   }, [audioEnabled, stop]);
+
+  const handleRequestBreakdown = useCallback((sentence: string) => {
+    setBreakdownSentence(sentence);
+    setDrawerOpen(true);
+  }, []);
 
   const showWelcome =
     !session.sessionActive && session.messages.length === 0;
@@ -67,20 +77,11 @@ export function Chat({ session, audioEnabled, onToggleAudio }: ChatProps) {
                 <VolumeOff className="h-4 w-4" />
               )}
             </Button>
-            <Button
-              variant="outline"
-              size="icon"
-              onClick={() => {
-                if (session.sessionActive) {
-                  session.endSession(false);
-                } else {
-                  session.startSession();
-                }
-              }}
-              title={session.sessionActive ? "End session" : "New session"}
-            >
-              <Plus className="h-4 w-4" />
-            </Button>
+            <SessionControls
+              sessionActive={session.sessionActive}
+              onStartSession={session.startSession}
+              onEndSession={session.endSession}
+            />
           </div>
         </div>
       </header>
@@ -106,9 +107,11 @@ export function Chat({ session, audioEnabled, onToggleAudio }: ChatProps) {
               <MessageBubble
                 key={msg.id}
                 message={msg}
+                lang={session.lang}
                 speak={speak}
                 autoPlay={audioEnabled}
                 isLatest={i === session.messages.length - 1}
+                onRequestBreakdown={handleRequestBreakdown}
               />
             ))}
 
@@ -158,6 +161,15 @@ export function Chat({ session, audioEnabled, onToggleAudio }: ChatProps) {
           />
         </div>
       </div>
+
+      {/* Breakdown Drawer */}
+      <BreakdownDrawer
+        open={drawerOpen}
+        onOpenChange={setDrawerOpen}
+        sentence={breakdownSentence}
+        lang={session.lang}
+        speak={speak}
+      />
     </div>
   );
 }

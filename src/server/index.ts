@@ -2,6 +2,7 @@ import Fastify from "fastify";
 import websocket from "@fastify/websocket";
 import { config } from "dotenv";
 import { wsRoute } from "./routes/ws.js";
+import { breakdownRoutes } from "./routes/breakdown.js";
 
 config();
 
@@ -12,6 +13,7 @@ async function main() {
 
   await app.register(websocket);
   await app.register(wsRoute);
+  await app.register(breakdownRoutes);
 
   app.get("/api/health", async () => ({ status: "ok" }));
 

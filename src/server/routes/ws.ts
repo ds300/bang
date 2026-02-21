@@ -5,7 +5,14 @@ import {
   endAgentSession,
   resolveToolCall,
   getActiveSession,
+  getActiveLang,
 } from "../agent/session.js";
+import {
+  resetIdleTimer,
+  cancelIdleTimer,
+  resetProcessedMessageCount,
+} from "../services/idle-processor.js";
+import { commitAndPush, hasChanges } from "../services/git.js";
 import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 
 export async function wsRoute(app: FastifyInstance) {
@@ -35,12 +42,20 @@ export async function wsRoute(app: FastifyInstance) {
 
     socket.on("close", () => {
       app.log.info("Client disconnected");
+      cancelIdleTimer();
       endAgentSession();
     });
 
     async function handleMessage(msg: ClientMessage) {
       switch (msg.type) {
         case "new_session": {
+          // End previous session if active
+          if (getActiveSession()) {
+            cancelIdleTimer();
+            endAgentSession();
+          }
+
+          resetProcessedMessageCount();
           const session = await startAgentSession(msg.lang, send);
 
           send({
@@ -48,10 +63,8 @@ export async function wsRoute(app: FastifyInstance) {
             sessionId: crypto.randomUUID(),
           });
 
-          // Start consuming the agent's output stream in the background
           streamingPromise = consumeAgentStream(session.messageStream());
 
-          // Send the initial prompt
           const greeting = `The user wants to start a new session for learning this language. If this is a brand new language (no existing files), interview them to assess their level. Otherwise, present session type options using the present_options tool. YOU MUST use the present_options tool to present options — do not type them out as text.`;
           session.sendMessage(greeting);
 
@@ -67,6 +80,12 @@ export async function wsRoute(app: FastifyInstance) {
             });
             return;
           }
+
+          // Reset idle timer on each user message
+          resetIdleTimer(async () => {
+            app.log.info("Idle timeout — processing session data");
+          });
+
           session.sendMessage(msg.text);
           break;
         }
@@ -77,7 +96,9 @@ export async function wsRoute(app: FastifyInstance) {
         }
 
         case "end_session": {
+          cancelIdleTimer();
           const session = getActiveSession();
+
           if (msg.discard || !session) {
             endAgentSession();
             send({
@@ -86,8 +107,31 @@ export async function wsRoute(app: FastifyInstance) {
             });
           } else {
             session.sendMessage(
-              "The user has ended the session. Please wrap up: summarize what was covered, suggest any file changes (items to move between current/review/learned), and update the session log file.",
+              "The user has ended the session. Please wrap up: summarize what was covered, suggest any file changes (items to move between current/review/learned), and update the session log file. After you're done, the session will be committed.",
             );
+
+            // Wait for the stream to finish, then commit
+            if (streamingPromise) {
+              streamingPromise.then(async () => {
+                try {
+                  if (await hasChanges()) {
+                    const lang = getActiveLang() ?? "unknown";
+                    const today = new Date().toISOString().slice(0, 10);
+                    await commitAndPush(
+                      `Session completed: ${lang} ${today}`,
+                    );
+                    app.log.info("Session data committed and pushed");
+                  }
+                } catch (err) {
+                  app.log.error(err, "Failed to commit session data");
+                }
+                endAgentSession();
+                send({
+                  type: "session_ended",
+                  summary: "Session completed and saved.",
+                });
+              });
+            }
           }
           break;
         }
@@ -108,15 +152,12 @@ export async function wsRoute(app: FastifyInstance) {
       }
     }
 
-    async function consumeAgentStream(
-      stream: AsyncGenerator<SDKMessage>,
-    ) {
+    async function consumeAgentStream(stream: AsyncGenerator<SDKMessage>) {
       try {
         let thinkingSent = false;
 
         for await (const message of stream) {
           if (message.type === "assistant") {
-            // Clear thinking state on first assistant message
             if (thinkingSent) {
               send({ type: "agent_thinking", thinking: false });
               thinkingSent = false;
@@ -139,7 +180,6 @@ export async function wsRoute(app: FastifyInstance) {
               }
             }
 
-            // If there are tool use blocks (agent is working), show thinking
             if (toolUseBlocks.length > 0 && textBlocks.length === 0) {
               if (!thinkingSent) {
                 send({ type: "agent_thinking", thinking: true });
