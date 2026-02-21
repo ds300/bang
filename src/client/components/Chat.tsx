@@ -7,6 +7,7 @@ import { OptionsCard } from "./OptionsCard";
 import { ChatInput } from "./ChatInput";
 import { LanguagePicker } from "./LanguagePicker";
 import { Loader2, Plus, Volume2, VolumeOff } from "lucide-react";
+import { useTTS } from "@/hooks/useTTS";
 import type { useSession } from "@/hooks/useSession";
 
 type SessionState = ReturnType<typeof useSession>;
@@ -19,12 +20,23 @@ interface ChatProps {
 
 export function Chat({ session, audioEnabled, onToggleAudio }: ChatProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
+  const { speak, stop } = useTTS(session.lang, audioEnabled);
 
   useEffect(() => {
     if (scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
-  }, [session.messages, session.pendingExercise, session.pendingOptions]);
+  }, [
+    session.messages,
+    session.pendingExercise,
+    session.pendingOptions,
+    session.agentThinking,
+  ]);
+
+  // Stop TTS when audio is disabled
+  useEffect(() => {
+    if (!audioEnabled) stop();
+  }, [audioEnabled, stop]);
 
   const showWelcome =
     !session.sessionActive && session.messages.length === 0;
@@ -35,7 +47,7 @@ export function Chat({ session, audioEnabled, onToggleAudio }: ChatProps) {
       <header className="border-b px-4 py-3">
         <div className="mx-auto flex max-w-2xl items-center justify-between">
           <div className="flex items-center gap-3">
-            <h1 className="text-lg font-semibold">Bang</h1>
+            <h1 className="text-lg font-semibold tracking-tight">Bang</h1>
             <LanguagePicker
               currentLang={session.lang}
               onSelect={session.setLang}
@@ -79,17 +91,25 @@ export function Chat({ session, audioEnabled, onToggleAudio }: ChatProps) {
           <div className="mx-auto max-w-2xl space-y-3 px-4 py-4">
             {showWelcome && (
               <div className="flex flex-col items-center gap-4 py-20 text-center">
-                <h2 className="text-xl font-semibold">
-                  Ready to learn?
-                </h2>
+                <h2 className="text-xl font-semibold">Ready to learn?</h2>
                 <p className="text-sm text-muted-foreground">
-                  Click the + button to start a new session.
+                  Click the{" "}
+                  <kbd className="bg-muted rounded px-1.5 py-0.5 text-xs font-mono">
+                    +
+                  </kbd>{" "}
+                  button to start a new session.
                 </p>
               </div>
             )}
 
-            {session.messages.map((msg) => (
-              <MessageBubble key={msg.id} message={msg} />
+            {session.messages.map((msg, i) => (
+              <MessageBubble
+                key={msg.id}
+                message={msg}
+                speak={speak}
+                autoPlay={audioEnabled}
+                isLatest={i === session.messages.length - 1}
+              />
             ))}
 
             {session.pendingOptions && (
@@ -103,6 +123,8 @@ export function Chat({ session, audioEnabled, onToggleAudio }: ChatProps) {
               <ExerciseCard
                 pending={session.pendingExercise}
                 onSubmit={session.respondToExercise}
+                speak={speak}
+                audioEnabled={audioEnabled}
               />
             )}
 
