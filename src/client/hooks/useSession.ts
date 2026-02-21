@@ -1,0 +1,217 @@
+import { useCallback, useEffect, useReducer, useRef } from "react";
+import type {
+  ClientMessage,
+  ServerMessage,
+  Exercise,
+  OptionItem,
+} from "@shared/protocol";
+
+export interface ChatMessage {
+  id: string;
+  role: "user" | "assistant";
+  text: string;
+}
+
+export interface PendingExercise {
+  exercise: Exercise;
+  toolCallId: string;
+}
+
+export interface PendingOptions {
+  prompt: string;
+  options: OptionItem[];
+  toolCallId: string;
+}
+
+interface SessionState {
+  messages: ChatMessage[];
+  lang: string;
+  sessionActive: boolean;
+  agentThinking: boolean;
+  pendingExercise: PendingExercise | null;
+  pendingOptions: PendingOptions | null;
+}
+
+type SessionAction =
+  | { type: "add_user_message"; text: string }
+  | { type: "add_assistant_message"; text: string; messageId: string }
+  | { type: "set_thinking"; thinking: boolean }
+  | { type: "session_started" }
+  | { type: "session_ended" }
+  | { type: "set_exercise"; exercise: PendingExercise }
+  | { type: "clear_exercise" }
+  | { type: "set_options"; options: PendingOptions }
+  | { type: "clear_options" }
+  | { type: "clear_all" }
+  | { type: "set_lang"; lang: string };
+
+function reducer(state: SessionState, action: SessionAction): SessionState {
+  switch (action.type) {
+    case "add_user_message":
+      return {
+        ...state,
+        messages: [
+          ...state.messages,
+          { id: crypto.randomUUID(), role: "user", text: action.text },
+        ],
+      };
+    case "add_assistant_message":
+      return {
+        ...state,
+        messages: [
+          ...state.messages,
+          { id: action.messageId, role: "assistant", text: action.text },
+        ],
+      };
+    case "set_thinking":
+      return { ...state, agentThinking: action.thinking };
+    case "session_started":
+      return { ...state, sessionActive: true };
+    case "session_ended":
+      return { ...state, sessionActive: false, pendingExercise: null, pendingOptions: null };
+    case "set_exercise":
+      return { ...state, pendingExercise: action.exercise };
+    case "clear_exercise":
+      return { ...state, pendingExercise: null };
+    case "set_options":
+      return { ...state, pendingOptions: action.options };
+    case "clear_options":
+      return { ...state, pendingOptions: null };
+    case "clear_all":
+      return {
+        ...state,
+        messages: [],
+        sessionActive: false,
+        agentThinking: false,
+        pendingExercise: null,
+        pendingOptions: null,
+      };
+    case "set_lang":
+      return { ...state, lang: action.lang };
+    default:
+      return state;
+  }
+}
+
+export function useSession(
+  send: (msg: ClientMessage) => void,
+  addHandler: (handler: (msg: ServerMessage) => void) => () => void,
+) {
+  const [state, dispatch] = useReducer(reducer, {
+    messages: [],
+    lang: "es",
+    sessionActive: false,
+    agentThinking: false,
+    pendingExercise: null,
+    pendingOptions: null,
+  });
+
+  const stateRef = useRef(state);
+  stateRef.current = state;
+
+  useEffect(() => {
+    return addHandler((msg) => {
+      switch (msg.type) {
+        case "assistant_text":
+          dispatch({
+            type: "add_assistant_message",
+            text: msg.text,
+            messageId: msg.messageId,
+          });
+          break;
+        case "agent_thinking":
+          dispatch({ type: "set_thinking", thinking: msg.thinking });
+          break;
+        case "session_started":
+          dispatch({ type: "session_started" });
+          break;
+        case "session_ended":
+          dispatch({ type: "session_ended" });
+          break;
+        case "exercise":
+          dispatch({
+            type: "set_exercise",
+            exercise: {
+              exercise: msg.exercise,
+              toolCallId: msg.toolCallId,
+            },
+          });
+          break;
+        case "options":
+          dispatch({
+            type: "set_options",
+            options: {
+              prompt: msg.prompt,
+              options: msg.options,
+              toolCallId: msg.toolCallId,
+            },
+          });
+          break;
+        case "error":
+          dispatch({
+            type: "add_assistant_message",
+            text: `Error: ${msg.message}`,
+            messageId: crypto.randomUUID(),
+          });
+          break;
+      }
+    });
+  }, [addHandler]);
+
+  const sendChat = useCallback(
+    (text: string) => {
+      dispatch({ type: "add_user_message", text });
+      send({ type: "chat", text });
+    },
+    [send],
+  );
+
+  const startSession = useCallback(() => {
+    dispatch({ type: "clear_all" });
+    dispatch({ type: "set_thinking", thinking: true });
+    send({ type: "new_session", lang: stateRef.current.lang });
+  }, [send]);
+
+  const endSession = useCallback(
+    (discard?: boolean) => {
+      send({ type: "end_session", discard });
+    },
+    [send],
+  );
+
+  const respondToExercise = useCallback(
+    (toolCallId: string, answer: string) => {
+      dispatch({ type: "add_user_message", text: answer });
+      dispatch({ type: "clear_exercise" });
+      send({ type: "tool_response", toolCallId, data: { answer } });
+    },
+    [send],
+  );
+
+  const selectOption = useCallback(
+    (toolCallId: string, optionId: string, label: string) => {
+      dispatch({ type: "add_user_message", text: label });
+      dispatch({ type: "clear_options" });
+      send({
+        type: "tool_response",
+        toolCallId,
+        data: { selectedOptionId: optionId, label },
+      });
+    },
+    [send],
+  );
+
+  const setLang = useCallback((lang: string) => {
+    dispatch({ type: "set_lang", lang });
+  }, []);
+
+  return {
+    ...state,
+    sendChat,
+    startSession,
+    endSession,
+    respondToExercise,
+    selectOption,
+    setLang,
+  };
+}
