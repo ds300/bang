@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
+import ReactMarkdown from "react-markdown";
 import {
   Sheet,
   SheetContent,
@@ -9,7 +10,13 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
-import { Volume2, Loader2, ArrowUpRight, ArrowDownRight, Send } from "lucide-react";
+import {
+  Volume2,
+  Loader2,
+  ArrowUpRight,
+  ArrowDownRight,
+  Send,
+} from "lucide-react";
 
 interface ConversationEntry {
   role: "user" | "assistant";
@@ -57,9 +64,7 @@ export function BreakdownDrawer({
       setBreakdown(data.breakdown);
 
       // Extract learnable items from JSON code blocks
-      const jsonMatch = data.breakdown.match(
-        /```json\s*\n([\s\S]*?)\n```/,
-      );
+      const jsonMatch = data.breakdown.match(/```json\s*\n([\s\S]*?)\n```/);
       if (jsonMatch?.[1]) {
         try {
           const items = JSON.parse(jsonMatch[1]);
@@ -130,14 +135,12 @@ export function BreakdownDrawer({
           </SheetTitle>
         </SheetHeader>
 
-        <ScrollArea className="flex-1 pr-4">
-          <div className="space-y-4 pb-4">
+        <ScrollArea className="flex-1">
+          <div className="space-y-4 px-4 pb-4">
             {/* Original sentence with replay */}
             {sentence && (
               <div className="flex items-start gap-2 rounded-lg bg-muted p-3">
-                <p className="flex-1 text-sm font-medium italic">
-                  {sentence}
-                </p>
+                <p className="flex-1 text-sm font-medium italic">{sentence}</p>
                 {speak && (
                   <Button
                     variant="ghost"
@@ -161,8 +164,8 @@ export function BreakdownDrawer({
 
             {/* Breakdown content */}
             {displayBreakdown && (
-              <div className="prose prose-sm dark:prose-invert max-w-none text-sm leading-relaxed whitespace-pre-wrap">
-                {displayBreakdown}
+              <div className="prose prose-sm dark:prose-invert max-w-none text-sm leading-relaxed">
+                <ReactMarkdown>{displayBreakdown}</ReactMarkdown>
               </div>
             )}
 
@@ -241,7 +244,7 @@ export function BreakdownDrawer({
         </ScrollArea>
 
         {/* Question input */}
-        <form onSubmit={handleAsk} className="flex gap-2 border-t pt-3">
+        <form onSubmit={handleAsk} className="flex gap-2 border-t px-4 py-3">
           <Input
             value={question}
             onChange={(e) => setQuestion(e.target.value)}

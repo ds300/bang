@@ -1,33 +1,71 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
-const PREFERRED_VOICE_NAMES: Record<string, string[]> = {
-  es: ["Google español", "Jorge", "Diego", "Andrés"],
-  fr: ["Google français", "Thomas", "Jacques"],
-  de: ["Google Deutsch", "Martin", "Stefan"],
-  it: ["Google italiano", "Luca"],
-  pt: ["Google português do Brasil", "Luciano"],
-  ja: ["Google 日本語", "Otoya"],
-  ko: ["Google 한국의", "Yuna"],
-  zh: ["Google 普通话（中国大陆）", "Ting-Ting"],
-  ru: ["Google русский", "Milena", "Yuri"],
-  nl: ["Google Nederlands", "Xander"],
+/**
+ * Chrome has high-quality "Google" voices that sound natural.
+ * We strongly prefer these over the robotic system voices.
+ * The lang codes Chrome uses vary (es-ES, es-US, es_ES, etc).
+ */
+
+const LANG_TO_BCP47: Record<string, string[]> = {
+  es: ["es-ES", "es-US", "es_ES", "es"],
+  fr: ["fr-FR", "fr_FR", "fr"],
+  de: ["de-DE", "de_DE", "de"],
+  it: ["it-IT", "it_IT", "it"],
+  pt: ["pt-BR", "pt_BR", "pt-PT", "pt"],
+  ja: ["ja-JP", "ja_JP", "ja"],
+  ko: ["ko-KR", "ko_KR", "ko"],
+  zh: ["zh-CN", "zh_CN", "zh-TW", "zh"],
+  ru: ["ru-RU", "ru_RU", "ru"],
+  nl: ["nl-NL", "nl_NL", "nl"],
 };
+
+function matchesLang(voiceLang: string, targetLang: string): boolean {
+  const candidates = LANG_TO_BCP47[targetLang] ?? [targetLang];
+  const normalized = voiceLang.replace("_", "-").toLowerCase();
+  return candidates.some(
+    (c) =>
+      normalized === c.toLowerCase() ||
+      normalized.startsWith(c.toLowerCase() + "-")
+  );
+}
 
 function pickVoice(lang: string): SpeechSynthesisVoice | null {
   const voices = speechSynthesis.getVoices();
-  const preferred = PREFERRED_VOICE_NAMES[lang] ?? [];
+  const langVoices = voices.filter((v) => matchesLang(v.lang, lang));
 
-  // Try preferred voices first
-  for (const name of preferred) {
-    const match = voices.find(
-      (v) => v.name.includes(name) && v.lang.startsWith(lang),
+  if (langVoices.length === 0) return null;
+
+  // Strongly prefer Google voices — they're the high-quality natural ones
+  const googleVoices = langVoices.filter((v) =>
+    v.name.toLowerCase().includes("google")
+  );
+
+  if (googleVoices.length > 0) {
+    // Log which voice we're using for debugging
+    console.log(
+      `[TTS] Using Google voice: "${googleVoices[0]!.name}" (${
+        googleVoices[0]!.lang
+      })`
     );
-    if (match) return match;
+    return googleVoices[0]!;
   }
 
-  // Fall back to any voice for the language, preferring male-sounding names
-  const langVoices = voices.filter((v) => v.lang.startsWith(lang));
-  return langVoices[0] ?? null;
+  // Fall back to any non-compact, non-Siri voice if no Google voices
+  const decentVoices = langVoices.filter(
+    (v) =>
+      !v.name.toLowerCase().includes("compact") &&
+      !v.name.toLowerCase().includes("siri")
+  );
+
+  const chosen = decentVoices[0] ?? langVoices[0]!;
+  console.log(
+    `[TTS] No Google voice found for ${lang}, using: "${chosen.name}" (${chosen.lang})`
+  );
+  console.log(
+    `[TTS] Available voices for ${lang}:`,
+    langVoices.map((v) => `${v.name} [${v.lang}]`).join(", ")
+  );
+  return chosen;
 }
 
 export function useTTS(lang: string, enabled: boolean) {
@@ -56,10 +94,10 @@ export function useTTS(lang: string, enabled: boolean) {
       utterance.voice = voiceRef.current;
       utterance.lang = voiceRef.current.lang;
       utterance.rate = 0.9;
-      utterance.pitch = 0.9;
+      utterance.pitch = 0.95;
       speechSynthesis.speak(utterance);
     },
-    [enabled],
+    [enabled]
   );
 
   const stop = useCallback(() => {

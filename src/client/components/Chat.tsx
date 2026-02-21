@@ -25,7 +25,7 @@ export function Chat({ session, audioEnabled, onToggleAudio }: ChatProps) {
   const { speak, stop } = useTTS(session.lang, audioEnabled);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [breakdownSentence, setBreakdownSentence] = useState<string | null>(
-    null,
+    null
   );
 
   useEffect(() => {
@@ -48,8 +48,7 @@ export function Chat({ session, audioEnabled, onToggleAudio }: ChatProps) {
     setDrawerOpen(true);
   }, []);
 
-  const showWelcome =
-    !session.sessionActive && session.messages.length === 0;
+  const showWelcome = !session.sessionActive && session.messages.length === 0;
 
   return (
     <div className="flex h-screen flex-col">
@@ -153,10 +152,12 @@ export function Chat({ session, audioEnabled, onToggleAudio }: ChatProps) {
             }
             placeholder={
               !session.sessionActive
-                ? "Start a session to begin..."
+                ? session.messages.length > 0
+                  ? "Session ended — press + to continue"
+                  : "Press + to start a session"
                 : session.agentThinking
-                  ? "Waiting for response..."
-                  : "Type a message..."
+                ? "Waiting for response..."
+                : "Type a message..."
             }
           />
         </div>

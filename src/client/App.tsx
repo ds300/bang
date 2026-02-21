@@ -8,7 +8,7 @@ import { Chat } from "@/components/Chat";
 export function App() {
   useSystemTheme();
   const { send, addHandler, connected } = useWebSocket();
-  const session = useSession(send, addHandler);
+  const session = useSession(send, addHandler, connected);
   const [audioEnabled, setAudioEnabled] = useState(true);
 
   return (

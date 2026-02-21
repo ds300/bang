@@ -1,7 +1,11 @@
 import type { FastifyInstance } from "fastify";
 import Anthropic from "@anthropic-ai/sdk";
 
-const anthropic = new Anthropic();
+let _anthropic: Anthropic | null = null;
+function getClient() {
+  if (!_anthropic) _anthropic = new Anthropic();
+  return _anthropic;
+}
 
 export async function breakdownRoutes(app: FastifyInstance) {
   app.post<{
@@ -9,8 +13,8 @@ export async function breakdownRoutes(app: FastifyInstance) {
   }>("/api/translate", async (request) => {
     const { sentence, lang, nativeLang = "English" } = request.body;
 
-    const response = await anthropic.messages.create({
-      model: "claude-haiku-3-5-20241022",
+    const response = await getClient().messages.create({
+      model: "claude-haiku-4-5",
       max_tokens: 200,
       messages: [
         {
@@ -34,29 +38,21 @@ export async function breakdownRoutes(app: FastifyInstance) {
   }>("/api/breakdown", async (request) => {
     const { sentence, lang, nativeLang = "English" } = request.body;
 
-    const response = await anthropic.messages.create({
-      model: "claude-sonnet-4-20250514",
-      max_tokens: 1000,
+    const response = await getClient().messages.create({
+      model: "claude-sonnet-4-6",
+      max_tokens: 500,
       messages: [
         {
           role: "user",
-          content: `Provide a grammatical breakdown of this ${lang} sentence for a ${nativeLang} speaker learning ${lang}. 
+          content: `Give a brief grammatical breakdown of this ${lang} sentence for a ${nativeLang} speaker. Be concise — a few short bullet points, not an essay.
 
-Sentence: "${sentence}"
+"${sentence}"
 
-Explain:
-1. The overall meaning and any idiomatic usage
-2. Key grammatical structures (verb conjugations, tenses, mood, agreements)
-3. Notable vocabulary with translations
-4. Why certain words/forms are used (e.g., why subjunctive here, why this preposition)
+Cover: meaning, key grammar (tense, mood), and any non-obvious vocabulary. Skip anything a beginner would already know. Use ${nativeLang} for explanations.
 
-Keep it clear and educational. Use ${nativeLang} for explanations. Format as markdown with the original sentence at the top.
-
-At the end, list individual words/concepts that could be added to a learning queue, formatted as a JSON code block:
+End with a JSON block of learnable items:
 \`\`\`json
-[
-  { "concept": "word or concept", "type": "vocabulary | grammar | idiom" }
-]
+[{ "concept": "...", "type": "vocabulary | grammar | idiom" }]
 \`\`\``,
         },
       ],
@@ -77,15 +73,17 @@ At the end, list individual words/concepts that could be added to a learning que
   }>("/api/breakdown/ask", async (request) => {
     const { sentence, lang, question, context = "" } = request.body;
 
-    const response = await anthropic.messages.create({
-      model: "claude-sonnet-4-20250514",
+    const response = await getClient().messages.create({
+      model: "claude-sonnet-4-6",
       max_tokens: 500,
       messages: [
         {
           role: "user",
           content: `Context: A language learner is studying this ${lang} sentence: "${sentence}"
 
-${context ? `Previous breakdown:\n${context}\n\n` : ""}The learner asks: "${question}"
+${
+  context ? `Previous breakdown:\n${context}\n\n` : ""
+}The learner asks: "${question}"
 
 Answer their question clearly and helpfully, in English. If relevant, provide examples.`,
         },

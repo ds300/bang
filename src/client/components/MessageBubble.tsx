@@ -1,9 +1,10 @@
 import { useEffect, useRef } from "react";
+import ReactMarkdown from "react-markdown";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Volume2 } from "lucide-react";
 import { SentenceSpan } from "./SentenceSpan";
-import { splitSentences, looksLikeTargetLanguage } from "@/lib/sentences";
+import { splitClauses, looksLikeTargetLanguage } from "@/lib/sentences";
 import type { ChatMessage } from "@/hooks/useSession";
 
 interface MessageBubbleProps {
@@ -13,6 +14,43 @@ interface MessageBubbleProps {
   autoPlay?: boolean;
   isLatest?: boolean;
   onRequestBreakdown?: (sentence: string) => void;
+}
+
+function ClickableText({
+  text,
+  lang,
+  onRequestBreakdown,
+}: {
+  text: string;
+  lang: string;
+  onRequestBreakdown: (sentence: string) => void;
+}) {
+  const clauses = splitClauses(text);
+  return (
+    <>
+      {clauses.map((clause, i) => {
+        const isTarget = looksLikeTargetLanguage(clause);
+        if (isTarget) {
+          return (
+            <span key={i}>
+              <SentenceSpan
+                sentence={clause}
+                lang={lang}
+                onRequestBreakdown={onRequestBreakdown}
+              />
+              {i < clauses.length - 1 ? " " : ""}
+            </span>
+          );
+        }
+        return (
+          <span key={i}>
+            {clause}
+            {i < clauses.length - 1 ? " " : ""}
+          </span>
+        );
+      })}
+    </>
+  );
 }
 
 export function MessageBubble({
@@ -27,19 +65,11 @@ export function MessageBubble({
   const hasAutoPlayed = useRef(false);
 
   useEffect(() => {
-    if (
-      !isUser &&
-      autoPlay &&
-      isLatest &&
-      speak &&
-      !hasAutoPlayed.current
-    ) {
+    if (!isUser && autoPlay && isLatest && speak && !hasAutoPlayed.current) {
       hasAutoPlayed.current = true;
       speak(message.text);
     }
   }, [isUser, autoPlay, isLatest, speak, message.text]);
-
-  const sentences = isUser ? null : splitSentences(message.text);
 
   return (
     <div
@@ -50,35 +80,34 @@ export function MessageBubble({
           "group relative max-w-[85%] rounded-2xl px-4 py-2.5 text-sm leading-relaxed",
           isUser
             ? "bg-primary text-primary-foreground rounded-br-md"
-            : "bg-muted text-foreground rounded-bl-md",
+            : "bg-muted text-foreground rounded-bl-md"
         )}
       >
-        {isUser || !sentences || !onRequestBreakdown ? (
+        {isUser ? (
           <span className="whitespace-pre-wrap">{message.text}</span>
         ) : (
-          <span>
-            {sentences.map((sentence, i) => {
-              const isTarget = looksLikeTargetLanguage(sentence);
-              if (isTarget) {
-                return (
-                  <span key={i}>
-                    <SentenceSpan
-                      sentence={sentence}
-                      lang={lang}
-                      onRequestBreakdown={onRequestBreakdown}
-                    />
-                    {i < sentences.length - 1 ? " " : ""}
-                  </span>
-                );
+          <div className="prose prose-sm dark:prose-invert max-w-none [&>*:first-child]:mt-0 [&>*:last-child]:mb-0">
+            <ReactMarkdown
+              components={
+                onRequestBreakdown
+                  ? {
+                      p: ({ children }) => (
+                        <p>
+                          {processChildren(children, lang, onRequestBreakdown)}
+                        </p>
+                      ),
+                      li: ({ children }) => (
+                        <li>
+                          {processChildren(children, lang, onRequestBreakdown)}
+                        </li>
+                      ),
+                    }
+                  : undefined
               }
-              return (
-                <span key={i}>
-                  {sentence}
-                  {i < sentences.length - 1 ? " " : ""}
-                </span>
-              );
-            })}
-          </span>
+            >
+              {message.text}
+            </ReactMarkdown>
+          </div>
         )}
         {!isUser && speak && (
           <Button
@@ -94,4 +123,37 @@ export function MessageBubble({
       </div>
     </div>
   );
+}
+
+function processChildren(
+  children: React.ReactNode,
+  lang: string,
+  onRequestBreakdown: (sentence: string) => void
+): React.ReactNode {
+  if (!children) return children;
+  if (typeof children === "string") {
+    return (
+      <ClickableText
+        text={children}
+        lang={lang}
+        onRequestBreakdown={onRequestBreakdown}
+      />
+    );
+  }
+  if (Array.isArray(children)) {
+    return children.map((child, i) => {
+      if (typeof child === "string") {
+        return (
+          <ClickableText
+            key={i}
+            text={child}
+            lang={lang}
+            onRequestBreakdown={onRequestBreakdown}
+          />
+        );
+      }
+      return child;
+    });
+  }
+  return children;
 }

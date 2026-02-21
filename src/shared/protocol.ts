@@ -28,6 +28,7 @@ export type ClientMessage =
   | { type: "tool_response"; toolCallId: string; data: unknown }
   | { type: "new_session"; lang: string }
   | { type: "end_session"; discard?: boolean }
+  | { type: "reconnect"; lang: string }
   | { type: "request_breakdown"; sentenceId: string; sentence: string }
   | { type: "set_language"; lang: string };
 

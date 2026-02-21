@@ -15,7 +15,6 @@ interface SessionHandle {
 
 let activeSession: SessionHandle | null = null;
 let activeLang: string | null = null;
-let onTurnComplete: (() => void) | null = null;
 
 export function getActiveSession() {
   return activeSession;
@@ -25,13 +24,9 @@ export function getActiveLang() {
   return activeLang;
 }
 
-export function setOnTurnComplete(fn: (() => void) | null) {
-  onTurnComplete = fn;
-}
-
 export async function startAgentSession(
   lang: string,
-  sendWs: (msg: ServerMessage) => void,
+  sendWs: (msg: ServerMessage) => void
 ): Promise<SessionHandle> {
   if (activeSession) {
     activeSession.close();
@@ -78,11 +73,9 @@ export async function startAgentSession(
   await ensureLangDir(lang);
   const systemPrompt = buildSystemPrompt(ctx);
 
-  // Message queue for streaming input mode (required for MCP tools)
   const messageQueue: Array<{ message: string }> = [];
   let waitingForMessage: ((value: void) => void) | null = null;
   let closed = false;
-  let isFirstMessage = true;
 
   async function* inputStream(): AsyncGenerator<{
     type: "user";
@@ -98,13 +91,6 @@ export async function startAgentSession(
             content: pending.message,
           },
         };
-        // Execution resumes HERE when the SDK calls next() again,
-        // meaning the agent has finished its turn (all tool calls resolved,
-        // all text emitted). This is our "turn complete" signal.
-        if (!isFirstMessage) {
-          onTurnComplete?.();
-        }
-        isFirstMessage = false;
       } else {
         await new Promise<void>((resolve) => {
           waitingForMessage = resolve;
@@ -117,7 +103,7 @@ export async function startAgentSession(
   const q = query({
     prompt: inputStream(),
     options: {
-      model: "claude-sonnet-4-20250514",
+      model: "claude-sonnet-4-6",
       systemPrompt,
       permissionMode: "bypassPermissions",
       allowDangerouslySkipPermissions: true,
@@ -161,6 +147,43 @@ export async function startAgentSession(
 
   activeSession = handle;
   return handle;
+}
+
+export function rewireSend(sendWs: (msg: ServerMessage) => void) {
+  if (!activeSession) return;
+  setSendToFrontend((toolName, toolCallId, data) => {
+    if (toolName === "exercise") {
+      const d = data as { exercise: unknown; toolCallId: string };
+      sendWs({
+        type: "exercise",
+        exercise: d.exercise,
+        toolCallId: d.toolCallId,
+      } as ServerMessage);
+    } else if (toolName === "options") {
+      const d = data as {
+        prompt: string;
+        options: Array<{ id: string; label: string; description?: string }>;
+        toolCallId: string;
+      };
+      sendWs({
+        type: "options",
+        prompt: d.prompt,
+        options: d.options,
+        toolCallId: d.toolCallId,
+      });
+    } else if (toolName === "propose_file_changes") {
+      const d = data as { proposals: unknown; toolCallId: string };
+      sendWs({
+        type: "options",
+        prompt: "The tutor proposes the following changes. Accept?",
+        options: [
+          { id: "accept", label: "Accept" },
+          { id: "reject", label: "Reject" },
+        ],
+        toolCallId: d.toolCallId,
+      });
+    }
+  });
 }
 
 export function endAgentSession() {

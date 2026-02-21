@@ -6,6 +6,8 @@ import type {
   OptionItem,
 } from "@shared/protocol";
 
+const STORAGE_KEY = "bang-session";
+
 export interface ChatMessage {
   id: string;
   role: "user" | "assistant";
@@ -45,6 +47,55 @@ type SessionAction =
   | { type: "clear_all" }
   | { type: "set_lang"; lang: string };
 
+const DEFAULT_STATE: SessionState = {
+  messages: [],
+  lang: "es",
+  sessionActive: false,
+  agentThinking: false,
+  pendingExercise: null,
+  pendingOptions: null,
+};
+
+interface PersistedData {
+  messages?: ChatMessage[];
+  lang?: string;
+  sessionActive?: boolean;
+}
+
+function loadPersistedState(): SessionState {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return DEFAULT_STATE;
+    const saved = JSON.parse(raw) as PersistedData;
+    return {
+      ...DEFAULT_STATE,
+      messages: saved.messages ?? [],
+      lang: saved.lang ?? "es",
+      sessionActive: saved.sessionActive ?? false,
+      agentThinking: false,
+      pendingExercise: null,
+      pendingOptions: null,
+    };
+  } catch {
+    return DEFAULT_STATE;
+  }
+}
+
+function persistState(state: SessionState) {
+  try {
+    localStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify({
+        messages: state.messages,
+        lang: state.lang,
+        sessionActive: state.sessionActive,
+      })
+    );
+  } catch {
+    // storage full or unavailable
+  }
+}
+
 function reducer(state: SessionState, action: SessionAction): SessionState {
   switch (action.type) {
     case "add_user_message":
@@ -68,7 +119,12 @@ function reducer(state: SessionState, action: SessionAction): SessionState {
     case "session_started":
       return { ...state, sessionActive: true };
     case "session_ended":
-      return { ...state, sessionActive: false, pendingExercise: null, pendingOptions: null };
+      return {
+        ...state,
+        sessionActive: false,
+        pendingExercise: null,
+        pendingOptions: null,
+      };
     case "set_exercise":
       return { ...state, pendingExercise: action.exercise };
     case "clear_exercise":
@@ -96,18 +152,29 @@ function reducer(state: SessionState, action: SessionAction): SessionState {
 export function useSession(
   send: (msg: ClientMessage) => void,
   addHandler: (handler: (msg: ServerMessage) => void) => () => void,
+  connected: boolean
 ) {
-  const [state, dispatch] = useReducer(reducer, {
-    messages: [],
-    lang: "es",
-    sessionActive: false,
-    agentThinking: false,
-    pendingExercise: null,
-    pendingOptions: null,
-  });
+  const [state, dispatch] = useReducer(reducer, null, loadPersistedState);
 
   const stateRef = useRef(state);
   stateRef.current = state;
+
+  // Persist to localStorage on every state change
+  useEffect(() => {
+    persistState(state);
+  }, [state]);
+
+  const hasReconnected = useRef(false);
+
+  useEffect(() => {
+    if (connected && stateRef.current.sessionActive && !hasReconnected.current) {
+      hasReconnected.current = true;
+      send({ type: "reconnect", lang: stateRef.current.lang });
+    }
+    if (!connected) {
+      hasReconnected.current = false;
+    }
+  }, [connected, send]);
 
   useEffect(() => {
     return addHandler((msg) => {
@@ -163,7 +230,7 @@ export function useSession(
       dispatch({ type: "add_user_message", text });
       send({ type: "chat", text });
     },
-    [send],
+    [send]
   );
 
   const startSession = useCallback(() => {
@@ -176,7 +243,7 @@ export function useSession(
     (discard?: boolean) => {
       send({ type: "end_session", discard });
     },
-    [send],
+    [send]
   );
 
   const respondToExercise = useCallback(
@@ -185,7 +252,7 @@ export function useSession(
       dispatch({ type: "clear_exercise" });
       send({ type: "tool_response", toolCallId, data: { answer } });
     },
-    [send],
+    [send]
   );
 
   const selectOption = useCallback(
@@ -198,7 +265,7 @@ export function useSession(
         data: { selectedOptionId: optionId, label },
       });
     },
-    [send],
+    [send]
   );
 
   const setLang = useCallback((lang: string) => {
