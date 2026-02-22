@@ -28,7 +28,7 @@ interface BreakdownDrawerProps {
   onOpenChange: (open: boolean) => void;
   sentence: string | null;
   lang: string;
-  speak?: (text: string) => void;
+  speakText?: (text: string, voiceLang?: "tl" | "nl") => void;
 }
 
 export function BreakdownDrawer({
@@ -36,7 +36,7 @@ export function BreakdownDrawer({
   onOpenChange,
   sentence,
   lang,
-  speak,
+  speakText,
 }: BreakdownDrawerProps) {
   const [breakdown, setBreakdown] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -46,6 +46,7 @@ export function BreakdownDrawer({
   const [learnableItems, setLearnableItems] = useState<
     Array<{ concept: string; type: string }>
   >([]);
+  const [queuedItems, setQueuedItems] = useState<Set<string>>(new Set());
 
   const fetchBreakdown = useCallback(async () => {
     if (!sentence) return;
@@ -53,6 +54,7 @@ export function BreakdownDrawer({
     setBreakdown(null);
     setConversation([]);
     setLearnableItems([]);
+    setQueuedItems(new Set());
 
     try {
       const res = await fetch("/api/breakdown", {
@@ -63,7 +65,6 @@ export function BreakdownDrawer({
       const data = await res.json();
       setBreakdown(data.breakdown);
 
-      // Extract learnable items from JSON code blocks
       const jsonMatch = data.breakdown.match(/```json\s*\n([\s\S]*?)\n```/);
       if (jsonMatch?.[1]) {
         try {
@@ -121,7 +122,23 @@ export function BreakdownDrawer({
     }
   }
 
-  // Strip JSON block from display
+  async function handleLearnQueue(
+    concept: string,
+    type: string,
+    position: "next" | "later"
+  ) {
+    try {
+      await fetch("/api/learn-queue", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ lang, concept, type, position }),
+      });
+      setQueuedItems((prev) => new Set(prev).add(concept));
+    } catch {
+      // silently fail
+    }
+  }
+
   const displayBreakdown = breakdown
     ?.replace(/```json\s*\n[\s\S]*?\n```/, "")
     .trim();
@@ -141,12 +158,12 @@ export function BreakdownDrawer({
             {sentence && (
               <div className="flex items-start gap-2 rounded-lg bg-muted p-3">
                 <p className="flex-1 text-sm font-medium italic">{sentence}</p>
-                {speak && (
+                {speakText && (
                   <Button
                     variant="ghost"
                     size="icon"
                     className="h-7 w-7 shrink-0"
-                    onClick={() => speak(sentence)}
+                    onClick={() => speakText(sentence, "tl")}
                   >
                     <Volume2 className="h-3.5 w-3.5" />
                   </Button>
@@ -177,39 +194,54 @@ export function BreakdownDrawer({
                   <h4 className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
                     Add to learning queue
                   </h4>
-                  {learnableItems.map((item) => (
-                    <div
-                      key={item.concept}
-                      className="flex items-center justify-between rounded-md border px-3 py-2"
-                    >
-                      <div>
-                        <span className="text-sm">{item.concept}</span>
-                        <span className="ml-2 text-xs text-muted-foreground">
-                          {item.type}
-                        </span>
+                  {learnableItems.map((item) => {
+                    const queued = queuedItems.has(item.concept);
+                    return (
+                      <div
+                        key={item.concept}
+                        className="flex items-center justify-between rounded-md border px-3 py-2"
+                      >
+                        <div>
+                          <span className="text-sm">{item.concept}</span>
+                          <span className="ml-2 text-xs text-muted-foreground">
+                            {item.type}
+                          </span>
+                        </div>
+                        {queued ? (
+                          <span className="text-xs text-muted-foreground">
+                            ✓ Queued
+                          </span>
+                        ) : (
+                          <div className="flex gap-1">
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-7 text-xs"
+                              title="Learn next (add to front of queue)"
+                              onClick={() =>
+                                handleLearnQueue(item.concept, item.type, "next")
+                              }
+                            >
+                              <ArrowUpRight className="mr-1 h-3 w-3" />
+                              Next
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-7 text-xs"
+                              title="Learn later (add to end of queue)"
+                              onClick={() =>
+                                handleLearnQueue(item.concept, item.type, "later")
+                              }
+                            >
+                              <ArrowDownRight className="mr-1 h-3 w-3" />
+                              Later
+                            </Button>
+                          </div>
+                        )}
                       </div>
-                      <div className="flex gap-1">
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="h-7 text-xs"
-                          title="Learn next (add to front of queue)"
-                        >
-                          <ArrowUpRight className="mr-1 h-3 w-3" />
-                          Next
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="h-7 text-xs"
-                          title="Learn later (add to end of queue)"
-                        >
-                          <ArrowDownRight className="mr-1 h-3 w-3" />
-                          Later
-                        </Button>
-                      </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </>
             )}

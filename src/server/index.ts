@@ -3,8 +3,10 @@ import websocket from "@fastify/websocket";
 import { config } from "dotenv";
 import { wsRoute } from "./routes/ws.js";
 import { breakdownRoutes } from "./routes/breakdown.js";
+import { initDb } from "./services/db.js";
 
 config();
+initDb();
 
 const PORT = parseInt(process.env.PORT || "3001", 10);
 

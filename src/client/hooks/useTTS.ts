@@ -1,10 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-
-/**
- * Chrome has high-quality "Google" voices that sound natural.
- * We strongly prefer these over the robotic system voices.
- * The lang codes Chrome uses vary (es-ES, es-US, es_ES, etc).
- */
+import type { TextSegment } from "@/lib/sentences";
 
 const LANG_TO_BCP47: Record<string, string[]> = {
   es: ["es-ES", "es-US", "es_ES", "es"],
@@ -17,6 +12,7 @@ const LANG_TO_BCP47: Record<string, string[]> = {
   zh: ["zh-CN", "zh_CN", "zh-TW", "zh"],
   ru: ["ru-RU", "ru_RU", "ru"],
   nl: ["nl-NL", "nl_NL", "nl"],
+  en: ["en-GB", "en-US", "en_GB", "en_US", "en"],
 };
 
 function matchesLang(voiceLang: string, targetLang: string): boolean {
@@ -35,47 +31,31 @@ function pickVoice(lang: string): SpeechSynthesisVoice | null {
 
   if (langVoices.length === 0) return null;
 
-  // Strongly prefer Google voices — they're the high-quality natural ones
   const googleVoices = langVoices.filter((v) =>
     v.name.toLowerCase().includes("google")
   );
 
-  if (googleVoices.length > 0) {
-    // Log which voice we're using for debugging
-    console.log(
-      `[TTS] Using Google voice: "${googleVoices[0]!.name}" (${
-        googleVoices[0]!.lang
-      })`
-    );
-    return googleVoices[0]!;
-  }
+  if (googleVoices.length > 0) return googleVoices[0]!;
 
-  // Fall back to any non-compact, non-Siri voice if no Google voices
   const decentVoices = langVoices.filter(
     (v) =>
       !v.name.toLowerCase().includes("compact") &&
       !v.name.toLowerCase().includes("siri")
   );
 
-  const chosen = decentVoices[0] ?? langVoices[0]!;
-  console.log(
-    `[TTS] No Google voice found for ${lang}, using: "${chosen.name}" (${chosen.lang})`
-  );
-  console.log(
-    `[TTS] Available voices for ${lang}:`,
-    langVoices.map((v) => `${v.name} [${v.lang}]`).join(", ")
-  );
-  return chosen;
+  return decentVoices[0] ?? langVoices[0]!;
 }
 
 export function useTTS(lang: string, enabled: boolean) {
-  const voiceRef = useRef<SpeechSynthesisVoice | null>(null);
+  const targetVoiceRef = useRef<SpeechSynthesisVoice | null>(null);
+  const nativeVoiceRef = useRef<SpeechSynthesisVoice | null>(null);
   const [ready, setReady] = useState(false);
 
   useEffect(() => {
     function loadVoices() {
-      voiceRef.current = pickVoice(lang);
-      setReady(voiceRef.current !== null);
+      targetVoiceRef.current = pickVoice(lang);
+      nativeVoiceRef.current = pickVoice("en");
+      setReady(targetVoiceRef.current !== null);
     }
 
     loadVoices();
@@ -84,16 +64,51 @@ export function useTTS(lang: string, enabled: boolean) {
       speechSynthesis.removeEventListener("voiceschanged", loadVoices);
   }, [lang]);
 
-  const speak = useCallback(
-    (text: string) => {
-      if (!enabled || !voiceRef.current) return;
+  const speakSegments = useCallback(
+    (segments: TextSegment[]) => {
+      if (!enabled) return;
 
       speechSynthesis.cancel();
 
+      for (const seg of segments) {
+        const trimmed = seg.text.trim();
+        if (!trimmed) continue;
+
+        const voice =
+          seg.lang === "nl"
+            ? nativeVoiceRef.current
+            : seg.lang === "tl"
+              ? targetVoiceRef.current
+              : targetVoiceRef.current;
+
+        if (!voice) continue;
+
+        const utterance = new SpeechSynthesisUtterance(trimmed);
+        utterance.voice = voice;
+        utterance.lang = voice.lang;
+        utterance.rate = seg.lang === "tl" ? 0.9 : 1.0;
+        utterance.pitch = 0.95;
+        speechSynthesis.speak(utterance);
+      }
+    },
+    [enabled]
+  );
+
+  const speakText = useCallback(
+    (text: string, voiceLang: "tl" | "nl" = "tl") => {
+      if (!enabled) return;
+      speechSynthesis.cancel();
+
+      const voice =
+        voiceLang === "nl"
+          ? nativeVoiceRef.current
+          : targetVoiceRef.current;
+      if (!voice) return;
+
       const utterance = new SpeechSynthesisUtterance(text);
-      utterance.voice = voiceRef.current;
-      utterance.lang = voiceRef.current.lang;
-      utterance.rate = 0.9;
+      utterance.voice = voice;
+      utterance.lang = voice.lang;
+      utterance.rate = voiceLang === "tl" ? 0.9 : 1.0;
       utterance.pitch = 0.95;
       speechSynthesis.speak(utterance);
     },
@@ -104,5 +119,5 @@ export function useTTS(lang: string, enabled: boolean) {
     speechSynthesis.cancel();
   }, []);
 
-  return { speak, stop, ready };
+  return { speakSegments, speakText, stop, ready };
 }

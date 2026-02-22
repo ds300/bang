@@ -110,7 +110,8 @@ function reducer(state: SessionState, action: SessionAction): SessionState {
 export function useSession(
   send: (msg: ClientMessage) => void,
   addHandler: (handler: (msg: ServerMessage) => void) => () => void,
-  connected: boolean
+  connected: boolean,
+  targetLangMode: boolean
 ) {
   const [state, dispatch] = useReducer(reducer, null, loadPersistedState);
 
@@ -121,12 +122,15 @@ export function useSession(
     persistState(state);
   }, [state]);
 
+  const targetLangModeRef = useRef(targetLangMode);
+  targetLangModeRef.current = targetLangMode;
+
   const hasReconnected = useRef(false);
 
   useEffect(() => {
     if (connected && stateRef.current.sessionActive && !hasReconnected.current) {
       hasReconnected.current = true;
-      send({ type: "reconnect", lang: stateRef.current.lang });
+      send({ type: "reconnect", lang: stateRef.current.lang, targetLangMode: targetLangModeRef.current });
     }
     if (!connected) {
       hasReconnected.current = false;
@@ -166,7 +170,7 @@ export function useSession(
   const sendChat = useCallback(
     (text: string) => {
       dispatch({ type: "add_user_message", text });
-      send({ type: "chat", text });
+      send({ type: "chat", text, targetLangMode: targetLangModeRef.current });
     },
     [send]
   );
@@ -174,7 +178,7 @@ export function useSession(
   const startSession = useCallback(() => {
     dispatch({ type: "clear_all" });
     dispatch({ type: "set_thinking", thinking: true });
-    send({ type: "new_session", lang: stateRef.current.lang });
+    send({ type: "new_session", lang: stateRef.current.lang, targetLangMode: targetLangModeRef.current });
   }, [send]);
 
   const endSession = useCallback(

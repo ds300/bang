@@ -1,10 +1,16 @@
 import { query, type SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 import { buildSystemPrompt } from "./system-prompt.js";
-import { bangToolServer } from "./tools.js";
+import { createBangToolServer } from "./tools.js";
 import {
   readLanguageContext,
   ensureLangDir,
 } from "../services/language-files.js";
+import { stripLangTags } from "./strip-tags.js";
+
+export interface ConversationMessage {
+  role: string;
+  text: string;
+}
 
 interface SessionHandle {
   sendMessage: (text: string) => void;
@@ -25,6 +31,7 @@ export function getActiveLang() {
 
 export async function startAgentSession(
   lang: string,
+  conversationHistory?: ConversationMessage[],
 ): Promise<SessionHandle> {
   if (activeSession) {
     activeSession.close();
@@ -35,7 +42,19 @@ export async function startAgentSession(
 
   const ctx = await readLanguageContext(lang);
   await ensureLangDir(lang);
-  const systemPrompt = buildSystemPrompt(ctx);
+  let systemPrompt = buildSystemPrompt(ctx);
+
+  if (conversationHistory && conversationHistory.length > 0) {
+    systemPrompt += `\n\n## Session restored after server restart
+
+The session was interrupted by a server restart. Below is the conversation that occurred before the interruption. Continue naturally from where you left off. Do NOT re-introduce yourself, re-greet the user, or repeat any information already covered.
+
+<conversation_history>
+${conversationHistory.map((m) => `${m.role === "user" ? "User" : "You"}: ${stripLangTags(m.text)}`).join("\n\n")}
+</conversation_history>
+
+Continue the session from here. The user's next message follows.`;
+  }
 
   const messageQueue: Array<{ message: string }> = [];
   let waitingForMessage: ((value: void) => void) | null = null;
@@ -81,7 +100,7 @@ export async function startAgentSession(
         "mcp__bang__compute_sm2",
       ],
       mcpServers: {
-        bang: bangToolServer,
+        bang: createBangToolServer(),
       },
     },
   });

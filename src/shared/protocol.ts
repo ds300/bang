@@ -1,9 +1,9 @@
 // Frontend -> Backend
 export type ClientMessage =
-  | { type: "chat"; text: string }
-  | { type: "new_session"; lang: string }
+  | { type: "chat"; text: string; targetLangMode?: boolean }
+  | { type: "new_session"; lang: string; targetLangMode?: boolean }
   | { type: "end_session"; discard?: boolean }
-  | { type: "reconnect"; lang: string }
+  | { type: "reconnect"; lang: string; targetLangMode?: boolean }
   | { type: "set_language"; lang: string };
 
 // Backend -> Frontend

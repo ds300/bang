@@ -1,5 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import Anthropic from "@anthropic-ai/sdk";
+import { readFile, writeFile, mkdir } from "node:fs/promises";
+import { join } from "node:path";
 
 let _anthropic: Anthropic | null = null;
 function getClient() {
@@ -93,5 +95,52 @@ Answer their question clearly and helpfully, in English. If relevant, provide ex
     const text =
       response.content[0]?.type === "text" ? response.content[0].text : "";
     return { answer: text };
+  });
+
+  app.post<{
+    Body: {
+      lang: string;
+      concept: string;
+      type: string;
+      position: "next" | "later";
+    };
+  }>("/api/learn-queue", async (request) => {
+    const { lang, concept, type, position } = request.body;
+    const futureFile = join("data", lang, "future.md");
+
+    await mkdir(join("data", lang), { recursive: true });
+
+    let items: Array<{ concept: string; type: string; priority: string; reason: string }> = [];
+    try {
+      const content = await readFile(futureFile, "utf-8");
+      const jsonMatch = content.match(/```json\s*\n([\s\S]*?)\n```/);
+      if (jsonMatch?.[1]) {
+        items = JSON.parse(jsonMatch[1]);
+      }
+    } catch {
+      // file doesn't exist yet
+    }
+
+    if (items.some((i) => i.concept.toLowerCase() === concept.toLowerCase())) {
+      return { ok: true, message: "Already in queue" };
+    }
+
+    const newItem = {
+      concept,
+      type,
+      priority: position === "next" ? "next" : "later",
+      reason: "Added from sentence breakdown",
+    };
+
+    if (position === "next") {
+      items.unshift(newItem);
+    } else {
+      items.push(newItem);
+    }
+
+    const md = `# Future Concepts\n\n\`\`\`json\n${JSON.stringify(items, null, 2)}\n\`\`\`\n`;
+    await writeFile(futureFile, md, "utf-8");
+
+    return { ok: true, position };
   });
 }

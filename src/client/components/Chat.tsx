@@ -6,7 +6,7 @@ import { ChatInput } from "./ChatInput";
 import { LanguagePicker } from "./LanguagePicker";
 import { SessionControls } from "./SessionControls";
 import { BreakdownDrawer } from "./BreakdownDrawer";
-import { Loader2, Volume2, VolumeOff } from "lucide-react";
+import { Loader2, Volume2, VolumeOff, Languages, MessageSquareText } from "lucide-react";
 import { useTTS } from "@/hooks/useTTS";
 import type { useSession } from "@/hooks/useSession";
 
@@ -16,19 +16,37 @@ interface ChatProps {
   session: SessionState;
   audioEnabled: boolean;
   onToggleAudio: () => void;
+  targetLangMode: boolean;
+  onToggleTargetLang: () => void;
 }
 
-export function Chat({ session, audioEnabled, onToggleAudio }: ChatProps) {
-  const scrollRef = useRef<HTMLDivElement>(null);
-  const { speak, stop } = useTTS(session.lang, audioEnabled);
+const NEAR_BOTTOM_THRESHOLD = 80;
+
+export function Chat({ session, audioEnabled, onToggleAudio, targetLangMode, onToggleTargetLang }: ChatProps) {
+  const viewportRef = useRef<HTMLElement | null>(null);
+  const isNearBottom = useRef(true);
+  const { speakSegments, speakText, stop } = useTTS(session.lang, audioEnabled);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [breakdownSentence, setBreakdownSentence] = useState<string | null>(
     null
   );
 
+  const scrollAreaRef = useCallback((node: HTMLDivElement | null) => {
+    if (!node) return;
+    const vp = node.querySelector("[data-slot='scroll-area-viewport']");
+    if (vp instanceof HTMLElement) {
+      viewportRef.current = vp;
+      vp.addEventListener("scroll", () => {
+        isNearBottom.current =
+          vp.scrollHeight - vp.scrollTop - vp.clientHeight < NEAR_BOTTOM_THRESHOLD;
+      });
+    }
+  }, []);
+
   useEffect(() => {
-    if (scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    const vp = viewportRef.current;
+    if (vp && isNearBottom.current) {
+      vp.scrollTop = vp.scrollHeight;
     }
   }, [session.messages, session.agentThinking]);
 
@@ -60,6 +78,18 @@ export function Chat({ session, audioEnabled, onToggleAudio }: ChatProps) {
             <Button
               variant="ghost"
               size="icon"
+              onClick={onToggleTargetLang}
+              title={targetLangMode ? "Agent speaks target language (click for English)" : "Agent speaks English (click for target language)"}
+            >
+              {targetLangMode ? (
+                <Languages className="h-4 w-4" />
+              ) : (
+                <MessageSquareText className="h-4 w-4" />
+              )}
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
               onClick={onToggleAudio}
               title={audioEnabled ? "Mute audio" : "Enable audio"}
             >
@@ -80,7 +110,7 @@ export function Chat({ session, audioEnabled, onToggleAudio }: ChatProps) {
 
       {/* Messages */}
       <div className="flex-1 overflow-hidden">
-        <ScrollArea className="h-full" ref={scrollRef}>
+        <ScrollArea className="h-full" ref={scrollAreaRef}>
           <div className="mx-auto max-w-2xl space-y-3 px-4 py-4">
             {showWelcome && (
               <div className="flex flex-col items-center gap-4 py-20 text-center">
@@ -95,17 +125,47 @@ export function Chat({ session, audioEnabled, onToggleAudio }: ChatProps) {
               </div>
             )}
 
-            {session.messages.map((msg, i) => (
-              <MessageBubble
-                key={msg.id}
-                message={msg}
-                lang={session.lang}
-                speak={speak}
-                autoPlay={audioEnabled}
-                isLatest={i === session.messages.length - 1}
-                onRequestBreakdown={handleRequestBreakdown}
-              />
-            ))}
+            {session.messages.map((msg, i) => {
+              const nextMsg = session.messages[i + 1];
+              const isUser = msg.role === "user";
+
+              const nextStartsWithTick =
+                nextMsg?.role === "assistant" &&
+                nextMsg.text.trimStart().startsWith("✓");
+
+              const markedCorrect = isUser && nextStartsWithTick;
+
+              if (!isUser && msg.text.trimStart().startsWith("✓")) {
+                const rest = msg.text.trimStart().replace(/^✓\s*/, "").trim();
+                if (!rest) return null;
+
+                return (
+                  <MessageBubble
+                    key={msg.id}
+                    message={{ ...msg, text: rest }}
+                    lang={session.lang}
+                    speakSegments={speakSegments}
+                    autoPlay={audioEnabled}
+                    isLatest={i === session.messages.length - 1}
+                    isCorrect={false}
+                    onRequestBreakdown={handleRequestBreakdown}
+                  />
+                );
+              }
+
+              return (
+                <MessageBubble
+                  key={msg.id}
+                  message={msg}
+                  lang={session.lang}
+                  speakSegments={speakSegments}
+                  autoPlay={audioEnabled}
+                  isLatest={i === session.messages.length - 1}
+                  isCorrect={markedCorrect}
+                  onRequestBreakdown={handleRequestBreakdown}
+                />
+              );
+            })}
 
             {session.agentThinking && (
               <div className="flex items-center gap-2 text-muted-foreground">
@@ -123,6 +183,7 @@ export function Chat({ session, audioEnabled, onToggleAudio }: ChatProps) {
           <ChatInput
             onSend={session.sendChat}
             disabled={!session.sessionActive || session.agentThinking}
+            shouldFocus={session.sessionActive && !session.agentThinking}
             placeholder={
               !session.sessionActive
                 ? session.messages.length > 0
@@ -142,7 +203,7 @@ export function Chat({ session, audioEnabled, onToggleAudio }: ChatProps) {
         onOpenChange={setDrawerOpen}
         sentence={breakdownSentence}
         lang={session.lang}
-        speak={speak}
+        speakText={speakText}
       />
     </div>
   );

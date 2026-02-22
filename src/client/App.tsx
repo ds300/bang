@@ -5,11 +5,29 @@ import { useWebSocket } from "@/hooks/useWebSocket";
 import { useSession } from "@/hooks/useSession";
 import { Chat } from "@/components/Chat";
 
+function loadTargetLangMode(): boolean {
+  try {
+    return localStorage.getItem("bang-target-lang-mode") !== "false";
+  } catch {
+    return true;
+  }
+}
+
 export function App() {
   useSystemTheme();
   const { send, addHandler, connected } = useWebSocket();
-  const session = useSession(send, addHandler, connected);
   const [audioEnabled, setAudioEnabled] = useState(true);
+  const [targetLangMode, setTargetLangMode] = useState(loadTargetLangMode);
+
+  const session = useSession(send, addHandler, connected, targetLangMode);
+
+  function handleToggleTargetLang() {
+    setTargetLangMode((v) => {
+      const next = !v;
+      localStorage.setItem("bang-target-lang-mode", String(next));
+      return next;
+    });
+  }
 
   return (
     <TooltipProvider>
@@ -17,6 +35,8 @@ export function App() {
         session={session}
         audioEnabled={audioEnabled}
         onToggleAudio={() => setAudioEnabled((v) => !v)}
+        targetLangMode={targetLangMode}
+        onToggleTargetLang={handleToggleTargetLang}
       />
       {!connected && (
         <div className="fixed bottom-4 left-1/2 -translate-x-1/2 rounded-full bg-destructive px-4 py-1.5 text-xs text-white shadow-lg">
