@@ -12,7 +12,7 @@
     "sessionType": "practice",
     "concepts": ["pretérito indefinido — irregular verbs", "presente de indicativo", "gender agreement"],
     "description": "Consolidate indefinido irregulars and review present tense",
-    "status": "planned"
+    "status": "completed"
   },
   {
     "sessionType": "conversation",
