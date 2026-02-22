@@ -3,24 +3,18 @@ import type { ClientMessage, ServerMessage } from "../../shared/protocol.js";
 import {
   startAgentSession,
   endAgentSession,
-  resolveToolCall,
   getActiveSession,
   getActiveLang,
-  rewireSend,
 } from "../agent/session.js";
 import {
-  resetIdleTimer,
   cancelIdleTimer,
   resetProcessedMessageCount,
 } from "../services/idle-processor.js";
 import { commitAndPush, hasChanges } from "../services/git.js";
 import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 
-const DISCONNECT_GRACE_MS = 5000;
-
 export async function wsRoute(app: FastifyInstance) {
   let activeSendFn: ((msg: ServerMessage) => void) | null = null;
-  let disconnectTimer: ReturnType<typeof setTimeout> | null = null;
   let activeStreamPromise: Promise<void> | null = null;
 
   function sendToClient(msg: ServerMessage) {
@@ -87,17 +81,6 @@ export async function wsRoute(app: FastifyInstance) {
 
     activeSendFn = localSend;
 
-    if (disconnectTimer) {
-      clearTimeout(disconnectTimer);
-      disconnectTimer = null;
-      app.log.info("Client reconnected within grace period");
-    }
-
-    const existingSession = getActiveSession();
-    if (existingSession) {
-      rewireSend(localSend);
-    }
-
     socket.on("message", (raw) => {
       try {
         const msg = JSON.parse(raw.toString()) as ClientMessage;
@@ -112,18 +95,10 @@ export async function wsRoute(app: FastifyInstance) {
     });
 
     socket.on("close", () => {
-      app.log.info("Client disconnected, starting grace period");
+      app.log.info("Client disconnected");
       if (activeSendFn === localSend) {
         activeSendFn = null;
       }
-
-      disconnectTimer = setTimeout(() => {
-        disconnectTimer = null;
-        app.log.info("Grace period expired, ending session");
-        cancelIdleTimer();
-        endAgentSession();
-        activeStreamPromise = null;
-      }, DISCONNECT_GRACE_MS);
     });
 
     async function handleMessage(msg: ClientMessage) {
@@ -152,7 +127,7 @@ export async function wsRoute(app: FastifyInstance) {
           }
 
           resetProcessedMessageCount();
-          const session = await startAgentSession(msg.lang, localSend);
+          const session = await startAgentSession(msg.lang);
 
           localSend({
             type: "session_started",
@@ -163,7 +138,9 @@ export async function wsRoute(app: FastifyInstance) {
 
           sendToClient({ type: "agent_thinking", thinking: true });
           session.sendMessage(
-            `The user wants to start a new session for learning this language. If this is a brand new language (no existing files), interview them to assess their level. Otherwise, present session type options using the present_options tool. YOU MUST use the present_options tool to present options — do not type them out as text.`
+            `The user wants to start a new session for learning this language. If this is a brand new language (no existing files), interview them to assess their level. Otherwise, ask them what kind of session they'd like (practice, conversation, or learning) — just ask in the chat, don't use any special tools.
+
+CRITICAL REMINDER: Wrap target-language phrases you are SPEAKING in <tl></tl> tags so they become clickable. Example: "<tl>¡Hola!</tl> Have you studied Spanish?" Do NOT tag individual vocab words mentioned in English discussion, and do NOT tag proper nouns like names.`
           );
 
           break;
@@ -179,17 +156,8 @@ export async function wsRoute(app: FastifyInstance) {
             return;
           }
 
-          resetIdleTimer(async () => {
-            app.log.info("Idle timeout — processing session data");
-          });
-
           sendToClient({ type: "agent_thinking", thinking: true });
           session.sendMessage(msg.text);
-          break;
-        }
-
-        case "tool_response": {
-          resolveToolCall(msg.toolCallId, msg.data);
           break;
         }
 
@@ -231,14 +199,6 @@ export async function wsRoute(app: FastifyInstance) {
               });
             }
           }
-          break;
-        }
-
-        case "request_breakdown": {
-          localSend({
-            type: "error",
-            message: "Sentence breakdown not yet implemented",
-          });
           break;
         }
 

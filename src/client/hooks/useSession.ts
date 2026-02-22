@@ -1,10 +1,5 @@
 import { useCallback, useEffect, useReducer, useRef } from "react";
-import type {
-  ClientMessage,
-  ServerMessage,
-  Exercise,
-  OptionItem,
-} from "@shared/protocol";
+import type { ClientMessage, ServerMessage } from "@shared/protocol";
 
 const STORAGE_KEY = "bang-session";
 
@@ -14,24 +9,11 @@ export interface ChatMessage {
   text: string;
 }
 
-export interface PendingExercise {
-  exercise: Exercise;
-  toolCallId: string;
-}
-
-export interface PendingOptions {
-  prompt: string;
-  options: OptionItem[];
-  toolCallId: string;
-}
-
 interface SessionState {
   messages: ChatMessage[];
   lang: string;
   sessionActive: boolean;
   agentThinking: boolean;
-  pendingExercise: PendingExercise | null;
-  pendingOptions: PendingOptions | null;
 }
 
 type SessionAction =
@@ -40,10 +22,6 @@ type SessionAction =
   | { type: "set_thinking"; thinking: boolean }
   | { type: "session_started" }
   | { type: "session_ended" }
-  | { type: "set_exercise"; exercise: PendingExercise }
-  | { type: "clear_exercise" }
-  | { type: "set_options"; options: PendingOptions }
-  | { type: "clear_options" }
   | { type: "clear_all" }
   | { type: "set_lang"; lang: string };
 
@@ -52,8 +30,6 @@ const DEFAULT_STATE: SessionState = {
   lang: "es",
   sessionActive: false,
   agentThinking: false,
-  pendingExercise: null,
-  pendingOptions: null,
 };
 
 interface PersistedData {
@@ -72,9 +48,6 @@ function loadPersistedState(): SessionState {
       messages: saved.messages ?? [],
       lang: saved.lang ?? "es",
       sessionActive: saved.sessionActive ?? false,
-      agentThinking: false,
-      pendingExercise: null,
-      pendingOptions: null,
     };
   } catch {
     return DEFAULT_STATE;
@@ -119,28 +92,13 @@ function reducer(state: SessionState, action: SessionAction): SessionState {
     case "session_started":
       return { ...state, sessionActive: true };
     case "session_ended":
-      return {
-        ...state,
-        sessionActive: false,
-        pendingExercise: null,
-        pendingOptions: null,
-      };
-    case "set_exercise":
-      return { ...state, pendingExercise: action.exercise };
-    case "clear_exercise":
-      return { ...state, pendingExercise: null };
-    case "set_options":
-      return { ...state, pendingOptions: action.options };
-    case "clear_options":
-      return { ...state, pendingOptions: null };
+      return { ...state, sessionActive: false };
     case "clear_all":
       return {
         ...state,
         messages: [],
         sessionActive: false,
         agentThinking: false,
-        pendingExercise: null,
-        pendingOptions: null,
       };
     case "set_lang":
       return { ...state, lang: action.lang };
@@ -159,7 +117,6 @@ export function useSession(
   const stateRef = useRef(state);
   stateRef.current = state;
 
-  // Persist to localStorage on every state change
   useEffect(() => {
     persistState(state);
   }, [state]);
@@ -195,25 +152,6 @@ export function useSession(
         case "session_ended":
           dispatch({ type: "session_ended" });
           break;
-        case "exercise":
-          dispatch({
-            type: "set_exercise",
-            exercise: {
-              exercise: msg.exercise,
-              toolCallId: msg.toolCallId,
-            },
-          });
-          break;
-        case "options":
-          dispatch({
-            type: "set_options",
-            options: {
-              prompt: msg.prompt,
-              options: msg.options,
-              toolCallId: msg.toolCallId,
-            },
-          });
-          break;
         case "error":
           dispatch({
             type: "add_assistant_message",
@@ -246,28 +184,6 @@ export function useSession(
     [send]
   );
 
-  const respondToExercise = useCallback(
-    (toolCallId: string, answer: string) => {
-      dispatch({ type: "add_user_message", text: answer });
-      dispatch({ type: "clear_exercise" });
-      send({ type: "tool_response", toolCallId, data: { answer } });
-    },
-    [send]
-  );
-
-  const selectOption = useCallback(
-    (toolCallId: string, optionId: string, label: string) => {
-      dispatch({ type: "add_user_message", text: label });
-      dispatch({ type: "clear_options" });
-      send({
-        type: "tool_response",
-        toolCallId,
-        data: { selectedOptionId: optionId, label },
-      });
-    },
-    [send]
-  );
-
   const setLang = useCallback((lang: string) => {
     dispatch({ type: "set_lang", lang });
   }, []);
@@ -277,8 +193,6 @@ export function useSession(
     sendChat,
     startSession,
     endSession,
-    respondToExercise,
-    selectOption,
     setLang,
   };
 }

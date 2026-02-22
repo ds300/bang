@@ -1,11 +1,10 @@
 import { query, type SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 import { buildSystemPrompt } from "./system-prompt.js";
-import { bangToolServer, setSendToFrontend, resolveToolCall } from "./tools.js";
+import { bangToolServer } from "./tools.js";
 import {
   readLanguageContext,
   ensureLangDir,
 } from "../services/language-files.js";
-import type { ServerMessage } from "../../shared/protocol.js";
 
 interface SessionHandle {
   sendMessage: (text: string) => void;
@@ -26,7 +25,6 @@ export function getActiveLang() {
 
 export async function startAgentSession(
   lang: string,
-  sendWs: (msg: ServerMessage) => void
 ): Promise<SessionHandle> {
   if (activeSession) {
     activeSession.close();
@@ -34,40 +32,6 @@ export async function startAgentSession(
   }
 
   activeLang = lang;
-
-  setSendToFrontend((toolName, toolCallId, data) => {
-    if (toolName === "exercise") {
-      const d = data as { exercise: unknown; toolCallId: string };
-      sendWs({
-        type: "exercise",
-        exercise: d.exercise,
-        toolCallId: d.toolCallId,
-      } as ServerMessage);
-    } else if (toolName === "options") {
-      const d = data as {
-        prompt: string;
-        options: Array<{ id: string; label: string; description?: string }>;
-        toolCallId: string;
-      };
-      sendWs({
-        type: "options",
-        prompt: d.prompt,
-        options: d.options,
-        toolCallId: d.toolCallId,
-      });
-    } else if (toolName === "propose_file_changes") {
-      const d = data as { proposals: unknown; toolCallId: string };
-      sendWs({
-        type: "options",
-        prompt: "The tutor proposes the following changes. Accept?",
-        options: [
-          { id: "accept", label: "Accept" },
-          { id: "reject", label: "Reject" },
-        ],
-        toolCallId: d.toolCallId,
-      });
-    }
-  });
 
   const ctx = await readLanguageContext(lang);
   await ensureLangDir(lang);
@@ -114,10 +78,7 @@ export async function startAgentSession(
         "Edit",
         "Glob",
         "Bash",
-        "mcp__bang__present_exercise",
-        "mcp__bang__present_options",
         "mcp__bang__compute_sm2",
-        "mcp__bang__propose_file_changes",
       ],
       mcpServers: {
         bang: bangToolServer,
@@ -149,43 +110,6 @@ export async function startAgentSession(
   return handle;
 }
 
-export function rewireSend(sendWs: (msg: ServerMessage) => void) {
-  if (!activeSession) return;
-  setSendToFrontend((toolName, toolCallId, data) => {
-    if (toolName === "exercise") {
-      const d = data as { exercise: unknown; toolCallId: string };
-      sendWs({
-        type: "exercise",
-        exercise: d.exercise,
-        toolCallId: d.toolCallId,
-      } as ServerMessage);
-    } else if (toolName === "options") {
-      const d = data as {
-        prompt: string;
-        options: Array<{ id: string; label: string; description?: string }>;
-        toolCallId: string;
-      };
-      sendWs({
-        type: "options",
-        prompt: d.prompt,
-        options: d.options,
-        toolCallId: d.toolCallId,
-      });
-    } else if (toolName === "propose_file_changes") {
-      const d = data as { proposals: unknown; toolCallId: string };
-      sendWs({
-        type: "options",
-        prompt: "The tutor proposes the following changes. Accept?",
-        options: [
-          { id: "accept", label: "Accept" },
-          { id: "reject", label: "Reject" },
-        ],
-        toolCallId: d.toolCallId,
-      });
-    }
-  });
-}
-
 export function endAgentSession() {
   if (activeSession) {
     activeSession.close();
@@ -193,5 +117,3 @@ export function endAgentSession() {
     activeLang = null;
   }
 }
-
-export { resolveToolCall };

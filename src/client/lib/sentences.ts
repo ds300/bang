@@ -8,14 +8,48 @@ export function splitClauses(text: string): string[] {
   return parts.filter((s) => s.trim().length > 0);
 }
 
+export interface TextSegment {
+  text: string;
+  isTargetLang: boolean;
+}
+
 /**
- * Rough heuristic: does this text look like it's in a non-English language?
- * Checks for common non-ASCII characters, diacritics, or known patterns.
+ * Parse <tl>...</tl> tags from text into segments.
+ * Text inside tags is target language (clickable), text outside is native.
  */
-export function looksLikeTargetLanguage(text: string): boolean {
-  if (/[áéíóúñüàèìòùâêîôûäëïöüçãõ¿¡]/i.test(text)) return true;
-  if (/[\u3000-\u9fff\uac00-\ud7af]/.test(text)) return true;
-  if (/[\u0400-\u04ff]/.test(text)) return true;
-  if (/[\u0600-\u06ff]/.test(text)) return true;
-  return false;
+export function parseTargetLangTags(text: string): TextSegment[] {
+  const segments: TextSegment[] = [];
+  const regex = /<tl>([\s\S]*?)<\/tl>/g;
+  let lastIndex = 0;
+  let match;
+
+  while ((match = regex.exec(text)) !== null) {
+    if (match.index > lastIndex) {
+      segments.push({
+        text: text.slice(lastIndex, match.index),
+        isTargetLang: false,
+      });
+    }
+    segments.push({
+      text: match[1]!,
+      isTargetLang: true,
+    });
+    lastIndex = match.index + match[0].length;
+  }
+
+  if (lastIndex < text.length) {
+    segments.push({
+      text: text.slice(lastIndex),
+      isTargetLang: false,
+    });
+  }
+
+  return segments;
+}
+
+/**
+ * Strip <tl>...</tl> tags from text, returning plain text.
+ */
+export function stripTargetLangTags(text: string): string {
+  return text.replace(/<tl>([\s\S]*?)<\/tl>/g, "$1");
 }

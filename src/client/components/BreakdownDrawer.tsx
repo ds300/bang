@@ -165,7 +165,7 @@ export function BreakdownDrawer({
             {/* Breakdown content */}
             {displayBreakdown && (
               <div className="prose prose-sm dark:prose-invert max-w-none text-sm leading-relaxed">
-                <ReactMarkdown>{displayBreakdown}</ReactMarkdown>
+                <ReactMarkdown>{displayBreakdown!}</ReactMarkdown>
               </div>
             )}
 

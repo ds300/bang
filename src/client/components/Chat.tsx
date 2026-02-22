@@ -2,8 +2,6 @@ import { useEffect, useRef, useState, useCallback } from "react";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Button } from "@/components/ui/button";
 import { MessageBubble } from "./MessageBubble";
-import { ExerciseCard } from "./ExerciseCard";
-import { OptionsCard } from "./OptionsCard";
 import { ChatInput } from "./ChatInput";
 import { LanguagePicker } from "./LanguagePicker";
 import { SessionControls } from "./SessionControls";
@@ -32,12 +30,7 @@ export function Chat({ session, audioEnabled, onToggleAudio }: ChatProps) {
     if (scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
-  }, [
-    session.messages,
-    session.pendingExercise,
-    session.pendingOptions,
-    session.agentThinking,
-  ]);
+  }, [session.messages, session.agentThinking]);
 
   useEffect(() => {
     if (!audioEnabled) stop();
@@ -114,22 +107,6 @@ export function Chat({ session, audioEnabled, onToggleAudio }: ChatProps) {
               />
             ))}
 
-            {session.pendingOptions && (
-              <OptionsCard
-                pending={session.pendingOptions}
-                onSelect={session.selectOption}
-              />
-            )}
-
-            {session.pendingExercise && (
-              <ExerciseCard
-                pending={session.pendingExercise}
-                onSubmit={session.respondToExercise}
-                speak={speak}
-                audioEnabled={audioEnabled}
-              />
-            )}
-
             {session.agentThinking && (
               <div className="flex items-center gap-2 text-muted-foreground">
                 <Loader2 className="h-4 w-4 animate-spin" />
@@ -145,11 +122,7 @@ export function Chat({ session, audioEnabled, onToggleAudio }: ChatProps) {
         <div className="mx-auto max-w-2xl">
           <ChatInput
             onSend={session.sendChat}
-            disabled={
-              !session.sessionActive ||
-              session.agentThinking ||
-              !!session.pendingExercise
-            }
+            disabled={!session.sessionActive || session.agentThinking}
             placeholder={
               !session.sessionActive
                 ? session.messages.length > 0
