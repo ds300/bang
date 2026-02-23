@@ -125,6 +125,7 @@ export function useSession(
   const targetLangModeRef = useRef(targetLangMode);
   targetLangModeRef.current = targetLangMode;
 
+  const pendingNewSession = useRef(false);
   const hasReconnected = useRef(false);
 
   useEffect(() => {
@@ -155,6 +156,12 @@ export function useSession(
           break;
         case "session_ended":
           dispatch({ type: "session_ended" });
+          if (pendingNewSession.current) {
+            pendingNewSession.current = false;
+            dispatch({ type: "clear_all" });
+            dispatch({ type: "set_thinking", thinking: true });
+            send({ type: "new_session", lang: stateRef.current.lang, targetLangMode: targetLangModeRef.current });
+          }
           break;
         case "error":
           dispatch({
@@ -182,7 +189,8 @@ export function useSession(
   }, [send]);
 
   const endSession = useCallback(
-    (discard?: boolean) => {
+    (discard?: boolean, startNew?: boolean) => {
+      pendingNewSession.current = startNew ?? false;
       send({ type: "end_session", discard });
     },
     [send]

@@ -26,9 +26,9 @@ const TARGET_LANG_INSTRUCTION = `LANGUAGE RULE: You MUST speak to the user in th
 
 export async function wsRoute(app: FastifyInstance) {
   let activeSendFn: ((msg: ServerMessage) => void) | null = null;
-  let activeStreamPromise: Promise<void> | null = null;
   let currentSessionId: string | null = null;
   let currentTargetLangMode = true;
+  let onTurnComplete: (() => void) | null = null;
 
   function sendToClient(msg: ServerMessage) {
     activeSendFn?.(msg);
@@ -92,6 +92,12 @@ export async function wsRoute(app: FastifyInstance) {
             }
           }
           sendToClient({ type: "agent_thinking", thinking: false });
+
+          if (onTurnComplete) {
+            const cb = onTurnComplete;
+            onTurnComplete = null;
+            cb();
+          }
         }
       }
     } catch (err) {
@@ -161,7 +167,7 @@ export async function wsRoute(app: FastifyInstance) {
             }));
 
             const session = await startAgentSession(dbSession.lang, history);
-            activeStreamPromise = consumeAgentStream(session.messageStream());
+            consumeAgentStream(session.messageStream());
 
             localSend({
               type: "session_started",
@@ -199,7 +205,7 @@ export async function wsRoute(app: FastifyInstance) {
             sessionId,
           });
 
-          activeStreamPromise = consumeAgentStream(session.messageStream());
+          consumeAgentStream(session.messageStream());
 
           sendToClient({ type: "agent_thinking", thinking: true });
           session.sendMessage(
@@ -245,7 +251,6 @@ IMPORTANT: Once the user picks a session type, you MUST create a session log fil
 
           if (msg.discard || !session) {
             endAgentSession();
-            activeStreamPromise = null;
             deactivateAllSessions();
             localSend({
               type: "session_ended",
@@ -253,33 +258,31 @@ IMPORTANT: Once the user picks a session type, you MUST create a session log fil
             });
           } else {
             sendToClient({ type: "agent_thinking", thinking: true });
+
+            onTurnComplete = async () => {
+              try {
+                if (await hasChanges()) {
+                  const lang = getActiveLang() ?? "unknown";
+                  const today = new Date().toISOString().slice(0, 10);
+                  await commitAndPush(
+                    `Session completed: ${lang} ${today}`
+                  );
+                  app.log.info("Session data committed and pushed");
+                }
+              } catch (err) {
+                app.log.error(err, "Failed to commit session data");
+              }
+              endAgentSession();
+              deactivateAllSessions();
+              sendToClient({
+                type: "session_ended",
+                summary: "Session completed and saved.",
+              });
+            };
+
             session.sendMessage(
               "The user has ended the session. Please wrap up:\n1. Update the session log file with all exercise results (pass/fail per exercise, user answers, corrections given), items actively/passively tested, and an end-of-session assessment.\n2. Suggest any file changes (items to move between current/review/learned) in the chat and wait for confirmation.\n3. Update plan.md if needed.\nAfter you're done, the session will be committed." + buildSuffix()
             );
-
-            if (activeStreamPromise) {
-              activeStreamPromise.then(async () => {
-                try {
-                  if (await hasChanges()) {
-                    const lang = getActiveLang() ?? "unknown";
-                    const today = new Date().toISOString().slice(0, 10);
-                    await commitAndPush(
-                      `Session completed: ${lang} ${today}`
-                    );
-                    app.log.info("Session data committed and pushed");
-                  }
-                } catch (err) {
-                  app.log.error(err, "Failed to commit session data");
-                }
-                endAgentSession();
-                activeStreamPromise = null;
-                deactivateAllSessions();
-                sendToClient({
-                  type: "session_ended",
-                  summary: "Session completed and saved.",
-                });
-              });
-            }
           }
           break;
         }

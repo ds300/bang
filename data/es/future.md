@@ -3,6 +3,12 @@
 ```json
 [
   {
+    "concept": "¡Menos mal! = 'Thank goodness / What a relief'",
+    "type": "idiom",
+    "priority": "next",
+    "reason": "Added from sentence breakdown"
+  },
+  {
     "concept": "pretérito imperfecto",
     "type": "grammar",
     "priority": "next",

@@ -24,7 +24,7 @@
     "sessionType": "conversation",
     "concepts": ["pretérito indefinido", "ser vs estar", "vocabulary: travel"],
     "description": "Free conversation about a past trip or recent events",
-    "status": "planned"
+    "status": "completed"
   }
 ]
 ```

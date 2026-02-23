@@ -3,13 +3,6 @@
 ```json
 [
   {
-    "concept": "pretérito indefinido — regular conjugation",
-    "type": "grammar",
-    "addedDate": "2026-02-21",
-    "struggles": ["conjugation under pressure", "remembering endings for -er/-ir verbs"],
-    "notes": "Core focus area. -AR: -é, -aste, -ó, -amos, -asteis, -aron. -ER/-IR: -í, -iste, -ió, -imos, -isteis, -ieron."
-  },
-  {
     "concept": "pretérito indefinido — irregular verbs (ser/ir, tener, estar, hacer, poder, venir)",
     "type": "grammar",
     "addedDate": "2026-02-21",

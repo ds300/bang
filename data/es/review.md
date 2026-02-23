@@ -3,6 +3,23 @@
 ```json
 [
   {
+    "concept": "pretérito indefinido — regular conjugation",
+    "type": "grammar",
+    "addedDate": "2026-02-21",
+    "sm2": {
+      "repetitions": 1,
+      "easiness": 2.5,
+      "interval": 1,
+      "nextReview": "2026-02-23"
+    },
+    "lastActiveTested": {
+      "production": "2026-02-22",
+      "recognition": null
+    },
+    "difficulties": ["conjugation under pressure", "remembering endings for -er/-ir verbs"],
+    "notes": "Produced correctly and spontaneously in conversation. Moving from current to review."
+  },
+  {
     "concept": "presente de indicativo",
     "type": "grammar",
     "addedDate": "2026-02-21",

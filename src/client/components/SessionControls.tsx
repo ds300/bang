@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import {
   AlertDialog,
@@ -15,7 +15,7 @@ import { Plus } from "lucide-react";
 interface SessionControlsProps {
   sessionActive: boolean;
   onStartSession: () => void;
-  onEndSession: (discard: boolean) => void;
+  onEndSession: (discard: boolean, startNew?: boolean) => void;
 }
 
 export function SessionControls({
@@ -24,6 +24,10 @@ export function SessionControls({
   onEndSession,
 }: SessionControlsProps) {
   const [showEndDialog, setShowEndDialog] = useState(false);
+
+  useEffect(() => {
+    if (!sessionActive) setShowEndDialog(false);
+  }, [sessionActive]);
 
   function handleClick() {
     if (sessionActive) {
@@ -59,7 +63,7 @@ export function SessionControls({
               variant="outline"
               onClick={() => {
                 setShowEndDialog(false);
-                onEndSession(true);
+                onEndSession(true, true);
               }}
             >
               Discard
@@ -67,7 +71,7 @@ export function SessionControls({
             <AlertDialogAction
               onClick={() => {
                 setShowEndDialog(false);
-                onEndSession(false);
+                onEndSession(false, true);
               }}
             >
               Save & End
