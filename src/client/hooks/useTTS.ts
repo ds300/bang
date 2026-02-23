@@ -77,12 +77,11 @@ export function useTTS(lang: string, enabled: boolean) {
         const trimmed = seg.text.trim();
         if (!trimmed) continue;
 
-        const voiceLang = seg.lang === "nl" ? "en" : lang;
+        const voiceLang = seg.lang === "tl" ? lang : "en";
         const voice = pickVoiceFresh(voiceLang);
         if (!voice) continue;
 
         const normalized = fixAccentBug(trimmed.normalize("NFC"));
-        console.log("yosef", normalized);
         const utterance = new SpeechSynthesisUtterance(normalized);
         utterance.voice = voice;
         utterance.rate = seg.lang === "tl" ? 0.92 : 1.0;

@@ -1,7 +1,9 @@
 node_modules
 dist
 .env
+.dev.vars
 *.tsbuildinfo
 data/bang.db
 data/bang.db-journal
 data/bang.db-wal
+.wrangler

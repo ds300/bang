@@ -3,16 +3,20 @@ import type { ClientMessage, ServerMessage } from "@shared/protocol";
 
 type MessageHandler = (msg: ServerMessage) => void;
 
-export function useWebSocket() {
+export function useWebSocket(token: string | null) {
   const wsRef = useRef<WebSocket | null>(null);
   const handlersRef = useRef<Set<MessageHandler>>(new Set());
   const [connected, setConnected] = useState(false);
+  const reconnectTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const connect = useCallback(() => {
+    if (!token) return;
     if (wsRef.current?.readyState === WebSocket.OPEN) return;
 
     const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-    const ws = new WebSocket(`${protocol}//${window.location.host}/ws`);
+    const ws = new WebSocket(
+      `${protocol}//${window.location.host}/ws?token=${encodeURIComponent(token)}`,
+    );
 
     ws.onopen = () => setConnected(true);
 
@@ -29,7 +33,8 @@ export function useWebSocket() {
 
     ws.onclose = () => {
       setConnected(false);
-      setTimeout(connect, 2000);
+      wsRef.current = null;
+      reconnectTimer.current = setTimeout(connect, 2000);
     };
 
     ws.onerror = () => {
@@ -37,12 +42,14 @@ export function useWebSocket() {
     };
 
     wsRef.current = ws;
-  }, []);
+  }, [token]);
 
   useEffect(() => {
     connect();
     return () => {
+      if (reconnectTimer.current) clearTimeout(reconnectTimer.current);
       wsRef.current?.close();
+      wsRef.current = null;
     };
   }, [connect]);
 

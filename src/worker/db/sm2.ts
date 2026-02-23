@@ -1,34 +1,28 @@
-/**
- * SM-2 spaced repetition algorithm.
- * https://en.wikipedia.org/wiki/SuperMemo#SM-2
- */
+export type ExerciseQuality = "fail" | "hard" | "pass" | "easy";
 
-export interface SM2State {
-  /** Number of consecutive correct responses */
+const QUALITY_MAP: Record<ExerciseQuality, number> = {
+  fail: 1,
+  hard: 3,
+  pass: 4,
+  easy: 5,
+};
+
+interface SM2State {
   repetitions: number;
-  /** Easiness factor (minimum 1.3) */
   easiness: number;
-  /** Current interval in days */
   interval: number;
-  /** Date of next review (ISO string) */
-  nextReview: string;
 }
 
-export interface SM2Result extends SM2State {
-  /** Whether the item was recalled successfully (quality >= 3) */
+interface SM2Result extends SM2State {
+  nextReview: string;
   recalled: boolean;
 }
 
-/**
- * Compute the next SM-2 state given a quality response.
- * @param quality 0-5 rating (0 = complete blackout, 5 = perfect response)
- * @param prev previous state, or undefined for a new item
- */
 export function computeSM2(
-  quality: number,
+  quality: ExerciseQuality,
   prev?: Partial<SM2State>,
 ): SM2Result {
-  const q = Math.max(0, Math.min(5, Math.round(quality)));
+  const q = QUALITY_MAP[quality];
   let repetitions = prev?.repetitions ?? 0;
   let easiness = prev?.easiness ?? 2.5;
   let interval = prev?.interval ?? 0;

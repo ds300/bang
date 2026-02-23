@@ -13,15 +13,16 @@ export default defineConfig({
   },
   root: ".",
   server: {
+    port: 5834,
     proxy: {
-      "/api": "http://localhost:3001",
+      "/api": "http://localhost:8432",
       "/ws": {
-        target: "ws://localhost:3001",
+        target: "ws://localhost:8432",
         ws: true,
       },
     },
     watch: {
-      ignored: ["**/data/**"],
+      ignored: ["**/data/**", "**/.wrangler/**"],
     },
   },
 });

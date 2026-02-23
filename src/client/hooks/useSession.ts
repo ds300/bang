@@ -1,8 +1,6 @@
 import { useCallback, useEffect, useReducer, useRef } from "react";
 import type { ClientMessage, ServerMessage } from "@shared/protocol";
 
-const STORAGE_KEY = "bang-session";
-
 export interface ChatMessage {
   id: string;
   role: "user" | "assistant";
@@ -14,15 +12,17 @@ interface SessionState {
   lang: string;
   sessionActive: boolean;
   agentThinking: boolean;
+  restored: boolean;
+  onboarded: boolean;
 }
 
 type SessionAction =
-  | { type: "add_user_message"; text: string }
+  | { type: "set_state"; messages: ChatMessage[]; sessionActive: boolean; lang: string | null; onboarded: boolean }
+  | { type: "add_user_message"; text: string; messageId: string }
   | { type: "add_assistant_message"; text: string; messageId: string }
   | { type: "set_thinking"; thinking: boolean }
   | { type: "session_started" }
   | { type: "session_ended" }
-  | { type: "clear_all" }
   | { type: "set_lang"; lang: string };
 
 const DEFAULT_STATE: SessionState = {
@@ -30,53 +30,28 @@ const DEFAULT_STATE: SessionState = {
   lang: "es",
   sessionActive: false,
   agentThinking: false,
+  restored: false,
+  onboarded: false,
 };
-
-interface PersistedData {
-  messages?: ChatMessage[];
-  lang?: string;
-  sessionActive?: boolean;
-}
-
-function loadPersistedState(): SessionState {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return DEFAULT_STATE;
-    const saved = JSON.parse(raw) as PersistedData;
-    return {
-      ...DEFAULT_STATE,
-      messages: saved.messages ?? [],
-      lang: saved.lang ?? "es",
-      sessionActive: saved.sessionActive ?? false,
-    };
-  } catch {
-    return DEFAULT_STATE;
-  }
-}
-
-function persistState(state: SessionState) {
-  try {
-    localStorage.setItem(
-      STORAGE_KEY,
-      JSON.stringify({
-        messages: state.messages,
-        lang: state.lang,
-        sessionActive: state.sessionActive,
-      })
-    );
-  } catch {
-    // storage full or unavailable
-  }
-}
 
 function reducer(state: SessionState, action: SessionAction): SessionState {
   switch (action.type) {
+    case "set_state":
+      return {
+        ...state,
+        messages: action.messages,
+        sessionActive: action.sessionActive,
+        lang: action.lang ?? state.lang,
+        agentThinking: false,
+        restored: true,
+        onboarded: action.onboarded,
+      };
     case "add_user_message":
       return {
         ...state,
         messages: [
           ...state.messages,
-          { id: crypto.randomUUID(), role: "user", text: action.text },
+          { id: action.messageId, role: "user", text: action.text },
         ],
       };
     case "add_assistant_message":
@@ -86,20 +61,14 @@ function reducer(state: SessionState, action: SessionAction): SessionState {
           ...state.messages,
           { id: action.messageId, role: "assistant", text: action.text },
         ],
+        restored: false,
       };
     case "set_thinking":
       return { ...state, agentThinking: action.thinking };
     case "session_started":
-      return { ...state, sessionActive: true };
+      return { ...state, sessionActive: true, messages: [], agentThinking: true };
     case "session_ended":
-      return { ...state, sessionActive: false };
-    case "clear_all":
-      return {
-        ...state,
-        messages: [],
-        sessionActive: false,
-        agentThinking: false,
-      };
+      return { ...state, sessionActive: false, agentThinking: false };
     case "set_lang":
       return { ...state, lang: action.lang };
     default:
@@ -111,37 +80,24 @@ export function useSession(
   send: (msg: ClientMessage) => void,
   addHandler: (handler: (msg: ServerMessage) => void) => () => void,
   connected: boolean,
-  targetLangMode: boolean
 ) {
-  const [state, dispatch] = useReducer(reducer, null, loadPersistedState);
-
+  const [state, dispatch] = useReducer(reducer, DEFAULT_STATE);
   const stateRef = useRef(state);
   stateRef.current = state;
 
   useEffect(() => {
-    persistState(state);
-  }, [state]);
-
-  const targetLangModeRef = useRef(targetLangMode);
-  targetLangModeRef.current = targetLangMode;
-
-  const pendingNewSession = useRef(false);
-  const hasReconnected = useRef(false);
-
-  useEffect(() => {
-    if (connected && stateRef.current.sessionActive && !hasReconnected.current) {
-      hasReconnected.current = true;
-      send({ type: "reconnect", lang: stateRef.current.lang, targetLangMode: targetLangModeRef.current });
-    }
-    if (!connected) {
-      hasReconnected.current = false;
-    }
-  }, [connected, send]);
-
-  useEffect(() => {
     return addHandler((msg) => {
       switch (msg.type) {
-        case "assistant_text":
+        case "state":
+          dispatch({
+            type: "set_state",
+            messages: msg.messages,
+            sessionActive: msg.sessionActive,
+            lang: msg.lang,
+            onboarded: msg.onboarded,
+          });
+          break;
+        case "assistant_message":
           dispatch({
             type: "add_assistant_message",
             text: msg.text,
@@ -156,14 +112,9 @@ export function useSession(
           break;
         case "session_ended":
           dispatch({ type: "session_ended" });
-          if (pendingNewSession.current) {
-            pendingNewSession.current = false;
-            dispatch({ type: "clear_all" });
-            dispatch({ type: "set_thinking", thinking: true });
-            send({ type: "new_session", lang: stateRef.current.lang, targetLangMode: targetLangModeRef.current });
-          }
           break;
         case "error":
+          dispatch({ type: "set_thinking", thinking: false });
           dispatch({
             type: "add_assistant_message",
             text: `Error: ${msg.message}`,
@@ -174,26 +125,31 @@ export function useSession(
     });
   }, [addHandler]);
 
+  // Explicitly request state when connected (or reconnected)
+  useEffect(() => {
+    if (connected) {
+      send({ type: "get_state" });
+    }
+  }, [connected, send]);
+
   const sendChat = useCallback(
     (text: string) => {
-      dispatch({ type: "add_user_message", text });
-      send({ type: "chat", text, targetLangMode: targetLangModeRef.current });
+      const messageId = crypto.randomUUID();
+      dispatch({ type: "add_user_message", text, messageId });
+      send({ type: "chat", text });
     },
-    [send]
+    [send],
   );
 
   const startSession = useCallback(() => {
-    dispatch({ type: "clear_all" });
-    dispatch({ type: "set_thinking", thinking: true });
-    send({ type: "new_session", lang: stateRef.current.lang, targetLangMode: targetLangModeRef.current });
+    send({ type: "new_session", lang: stateRef.current.lang });
   }, [send]);
 
   const endSession = useCallback(
-    (discard?: boolean, startNew?: boolean) => {
-      pendingNewSession.current = startNew ?? false;
+    (discard?: boolean) => {
       send({ type: "end_session", discard });
     },
-    [send]
+    [send],
   );
 
   const setLang = useCallback((lang: string) => {

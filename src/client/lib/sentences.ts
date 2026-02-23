@@ -2,14 +2,15 @@ export type LangTag = "tl" | "nl";
 
 export interface TextSegment {
   text: string;
-  lang: LangTag | null;
+  lang: LangTag;
 }
 
 /**
  * Parse <tl>...</tl> and <nl>...</nl> tags from text into segments.
+ * Untagged text is assigned `defaultLang`.
  * Strips presentational tags like <listen> before parsing.
  */
-export function parseLangTags(text: string): TextSegment[] {
+export function parseLangTags(text: string, defaultLang: LangTag): TextSegment[] {
   const cleaned = text.replace(/<\/?listen>/g, "");
   const segments: TextSegment[] = [];
   const regex = /<(tl|nl)>([\s\S]*?)<\/\1>/g;
@@ -20,7 +21,7 @@ export function parseLangTags(text: string): TextSegment[] {
     if (match.index > lastIndex) {
       segments.push({
         text: cleaned.slice(lastIndex, match.index),
-        lang: null,
+        lang: defaultLang,
       });
     }
     segments.push({
@@ -33,7 +34,7 @@ export function parseLangTags(text: string): TextSegment[] {
   if (lastIndex < cleaned.length) {
     segments.push({
       text: cleaned.slice(lastIndex),
-      lang: null,
+      lang: defaultLang,
     });
   }
 

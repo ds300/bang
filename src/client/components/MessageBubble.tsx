@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import rehypeRaw from "rehype-raw";
 import { cn } from "@/lib/utils";
+import { apiFetch } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Volume2, Check, Eye, Loader2, ExternalLink } from "lucide-react";
 import { parseLangTags } from "@/lib/sentences";
@@ -11,6 +12,7 @@ import type { ChatMessage } from "@/hooks/useSession";
 interface MessageBubbleProps {
   message: ChatMessage;
   lang: string;
+  onboarded: boolean;
   speakSegments?: (segments: TextSegment[]) => void;
   autoPlay?: boolean;
   isLatest?: boolean;
@@ -25,6 +27,37 @@ interface TranslationTooltip {
   context: string;
   translation: string | null;
   loading: boolean;
+}
+
+/**
+ * Wrap untagged text runs in the given default language tag so that
+ * ReactMarkdown renders every run through the appropriate component.
+ */
+function normalizeMessageTags(text: string, defaultTag: "tl" | "nl"): string {
+  const regex = /<(tl|nl|listen)>([\s\S]*?)<\/\1>/g;
+  let result = "";
+  let lastIndex = 0;
+  let match;
+
+  while ((match = regex.exec(text)) !== null) {
+    const gap = text.slice(lastIndex, match.index);
+    if (gap.trim()) {
+      result += `<${defaultTag}>${gap}</${defaultTag}>`;
+    } else {
+      result += gap;
+    }
+    result += match[0];
+    lastIndex = match.index + match[0].length;
+  }
+
+  const tail = text.slice(lastIndex);
+  if (tail.trim()) {
+    result += `<${defaultTag}>${tail}</${defaultTag}>`;
+  } else {
+    result += tail;
+  }
+
+  return result;
 }
 
 function tokenize(text: string): string[] {
@@ -110,7 +143,7 @@ function TargetLangBlock({
       loading: true,
     });
 
-    fetch("/api/translate", {
+    apiFetch("/api/translate", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ sentence: selectedText, lang, context: fullText }),
@@ -293,6 +326,7 @@ function ListenBlock({
 export function MessageBubble({
   message,
   lang,
+  onboarded,
   speakSegments,
   autoPlay,
   isLatest,
@@ -302,9 +336,9 @@ export function MessageBubble({
   const isUser = message.role === "user";
   const hasAutoPlayed = useRef(false);
 
-  const segments = !isUser ? parseLangTags(message.text) : [];
-
-  console.log(message.text)
+  const defaultLang: "tl" | "nl" = onboarded ? "tl" : "nl";
+  const segments = !isUser ? parseLangTags(message.text, defaultLang) : [];
+  const normalizedText = !isUser ? normalizeMessageTags(message.text, defaultLang) : message.text;
 
   useEffect(() => {
     if (
@@ -356,7 +390,7 @@ export function MessageBubble({
                 ),
               } as Record<string, React.ComponentType<{ children?: React.ReactNode }>>}
             >
-              {message.text}
+              {normalizedText}
             </ReactMarkdown>
           </div>
         )}

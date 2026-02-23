@@ -6,7 +6,7 @@ import { ChatInput } from "./ChatInput";
 import { LanguagePicker } from "./LanguagePicker";
 import { SessionControls } from "./SessionControls";
 import { BreakdownDrawer } from "./BreakdownDrawer";
-import { Loader2, Volume2, VolumeOff, Languages, MessageSquareText } from "lucide-react";
+import { Loader2, Volume2, VolumeOff } from "lucide-react";
 import { useTTS } from "@/hooks/useTTS";
 import type { useSession } from "@/hooks/useSession";
 
@@ -16,19 +16,17 @@ interface ChatProps {
   session: SessionState;
   audioEnabled: boolean;
   onToggleAudio: () => void;
-  targetLangMode: boolean;
-  onToggleTargetLang: () => void;
 }
 
 const NEAR_BOTTOM_THRESHOLD = 80;
 
-export function Chat({ session, audioEnabled, onToggleAudio, targetLangMode, onToggleTargetLang }: ChatProps) {
+export function Chat({ session, audioEnabled, onToggleAudio }: ChatProps) {
   const viewportRef = useRef<HTMLElement | null>(null);
   const isNearBottom = useRef(true);
   const { speakSegments, speakText, stop } = useTTS(session.lang, audioEnabled);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [breakdownSentence, setBreakdownSentence] = useState<string | null>(
-    null
+    null,
   );
   const [breakdownContext, setBreakdownContext] = useState<string | null>(null);
 
@@ -39,7 +37,8 @@ export function Chat({ session, audioEnabled, onToggleAudio, targetLangMode, onT
       viewportRef.current = vp;
       vp.addEventListener("scroll", () => {
         isNearBottom.current =
-          vp.scrollHeight - vp.scrollTop - vp.clientHeight < NEAR_BOTTOM_THRESHOLD;
+          vp.scrollHeight - vp.scrollTop - vp.clientHeight <
+          NEAR_BOTTOM_THRESHOLD;
       });
     }
   }, []);
@@ -55,11 +54,14 @@ export function Chat({ session, audioEnabled, onToggleAudio, targetLangMode, onT
     if (!audioEnabled) stop();
   }, [audioEnabled, stop]);
 
-  const handleRequestBreakdown = useCallback((selection: string, context: string) => {
-    setBreakdownSentence(selection);
-    setBreakdownContext(context);
-    setDrawerOpen(true);
-  }, []);
+  const handleRequestBreakdown = useCallback(
+    (selection: string, context: string) => {
+      setBreakdownSentence(selection);
+      setBreakdownContext(context);
+      setDrawerOpen(true);
+    },
+    [],
+  );
 
   const showWelcome = !session.sessionActive && session.messages.length === 0;
 
@@ -77,18 +79,6 @@ export function Chat({ session, audioEnabled, onToggleAudio, targetLangMode, onT
             />
           </div>
           <div className="flex items-center gap-2">
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={onToggleTargetLang}
-              title={targetLangMode ? "Agent speaks target language (click for English)" : "Agent speaks English (click for target language)"}
-            >
-              {targetLangMode ? (
-                <Languages className="h-4 w-4" />
-              ) : (
-                <MessageSquareText className="h-4 w-4" />
-              )}
-            </Button>
             <Button
               variant="ghost"
               size="icon"
@@ -146,8 +136,9 @@ export function Chat({ session, audioEnabled, onToggleAudio, targetLangMode, onT
                     key={msg.id}
                     message={{ ...msg, text: rest }}
                     lang={session.lang}
+                    onboarded={session.onboarded}
                     speakSegments={speakSegments}
-                    autoPlay={audioEnabled}
+                    autoPlay={audioEnabled && !session.restored}
                     isLatest={i === session.messages.length - 1}
                     isCorrect={false}
                     onRequestBreakdown={handleRequestBreakdown}
@@ -160,8 +151,9 @@ export function Chat({ session, audioEnabled, onToggleAudio, targetLangMode, onT
                   key={msg.id}
                   message={msg}
                   lang={session.lang}
+                  onboarded={session.onboarded}
                   speakSegments={speakSegments}
-                  autoPlay={audioEnabled}
+                  autoPlay={audioEnabled && !session.restored}
                   isLatest={i === session.messages.length - 1}
                   isCorrect={markedCorrect}
                   onRequestBreakdown={handleRequestBreakdown}
@@ -192,8 +184,8 @@ export function Chat({ session, audioEnabled, onToggleAudio, targetLangMode, onT
                   ? "Session ended — press + to continue"
                   : "Press + to start a session"
                 : session.agentThinking
-                ? "Waiting for response..."
-                : "Type a message..."
+                  ? "Waiting for response..."
+                  : "Type a message..."
             }
           />
         </div>

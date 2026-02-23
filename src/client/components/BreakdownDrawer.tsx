@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import ReactMarkdown from "react-markdown";
+import { apiFetch } from "@/lib/api";
 import {
   Sheet,
   SheetContent,
@@ -59,7 +60,7 @@ export function BreakdownDrawer({
     setQueuedItems(new Set());
 
     try {
-      const res = await fetch("/api/breakdown", {
+      const res = await apiFetch("/api/breakdown", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ sentence, lang, context: context ?? undefined }),
@@ -99,7 +100,7 @@ export function BreakdownDrawer({
     setAskingQuestion(true);
 
     try {
-      const res = await fetch("/api/breakdown/ask", {
+      const res = await apiFetch("/api/breakdown/ask", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -130,7 +131,7 @@ export function BreakdownDrawer({
     position: "next" | "later"
   ) {
     try {
-      await fetch("/api/learn-queue", {
+      await apiFetch("/api/learn-queue", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ lang, concept, type, position }),

@@ -1,0 +1,19 @@
+name = "bang"
+main = "src/worker/index.ts"
+compatibility_date = "2024-12-30"
+compatibility_flags = ["nodejs_compat"]
+
+[dev]
+port = 8432
+
+[[durable_objects.bindings]]
+name = "TUTOR"
+class_name = "TutorDO"
+
+[[kv_namespaces]]
+binding = "AUTH_KV"
+id = "bang-auth-kv-dev"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["TutorDO"]

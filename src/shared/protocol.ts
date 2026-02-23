@@ -1,15 +1,26 @@
-// Frontend -> Backend
-export type ClientMessage =
-  | { type: "chat"; text: string; targetLangMode?: boolean }
-  | { type: "new_session"; lang: string; targetLangMode?: boolean }
-  | { type: "end_session"; discard?: boolean }
-  | { type: "reconnect"; lang: string; targetLangMode?: boolean }
-  | { type: "set_language"; lang: string };
+import type { ChatMessage, AgentStep } from "./types";
 
-// Backend -> Frontend
+// Client -> Server
+export type ClientMessage =
+  | { type: "new_session"; lang: string }
+  | { type: "chat"; text: string }
+  | { type: "end_session"; discard?: boolean }
+  | { type: "get_state" };
+
+// Server -> Client
 export type ServerMessage =
-  | { type: "assistant_text"; text: string; messageId: string }
+  | {
+      type: "state";
+      messages: ChatMessage[];
+      sessionActive: boolean;
+      sessionId: string | null;
+      lang: string | null;
+      onboarded: boolean;
+    }
+  | { type: "assistant_message"; text: string; messageId: string }
+  | { type: "user_message_ack"; messageId: string }
+  | { type: "agent_thinking"; thinking: boolean }
+  | { type: "agent_step"; step: AgentStep }
   | { type: "session_started"; sessionId: string }
-  | { type: "session_ended"; summary: string }
-  | { type: "error"; message: string }
-  | { type: "agent_thinking"; thinking: boolean };
+  | { type: "session_ended" }
+  | { type: "error"; message: string };

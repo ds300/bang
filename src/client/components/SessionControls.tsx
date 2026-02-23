@@ -15,7 +15,7 @@ import { Plus } from "lucide-react";
 interface SessionControlsProps {
   sessionActive: boolean;
   onStartSession: () => void;
-  onEndSession: (discard: boolean, startNew?: boolean) => void;
+  onEndSession: (discard?: boolean) => void;
 }
 
 export function SessionControls({
@@ -53,8 +53,8 @@ export function SessionControls({
           <AlertDialogHeader>
             <AlertDialogTitle>End current session?</AlertDialogTitle>
             <AlertDialogDescription>
-              You have an active session. Would you like to save your
-              progress or discard it?
+              You have an active session. Would you like to save your progress
+              or discard it?
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -63,7 +63,7 @@ export function SessionControls({
               variant="outline"
               onClick={() => {
                 setShowEndDialog(false);
-                onEndSession(true, true);
+                onEndSession(true);
               }}
             >
               Discard
@@ -71,7 +71,7 @@ export function SessionControls({
             <AlertDialogAction
               onClick={() => {
                 setShowEndDialog(false);
-                onEndSession(false, true);
+                onEndSession(false);
               }}
             >
               Save & End
