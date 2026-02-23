@@ -25,6 +25,12 @@
     "concepts": ["pretérito indefinido", "ser vs estar", "vocabulary: travel"],
     "description": "Free conversation about a past trip or recent events",
     "status": "completed"
+  },
+  {
+    "sessionType": "learning",
+    "concepts": ["tan / tanto / tanta / tantos / tantas"],
+    "description": "Introduced tan/tanto comparatives and intensifiers; followed by exercises",
+    "status": "completed"
   }
 ]
 ```

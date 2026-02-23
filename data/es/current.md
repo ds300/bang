@@ -22,6 +22,13 @@
     "addedDate": "2026-02-21",
     "struggles": ["applying consistently, especially with less common nouns"],
     "notes": "Adjectives must agree in gender and number with the noun they modify."
+  },
+  {
+    "concept": "tan / tanto / tanta / tantos / tantas",
+    "type": "grammar",
+    "addedDate": "2026-02-23",
+    "struggles": ["confusing hablar vs decir in indefinido context"],
+    "notes": "tan + adj/adv = so; tan...como = as...as; tanto/tanta/tantos/tantas + noun = so much/many (agrees in gender and number); tanto as invariable adverb after verb = so much."
   }
 ]
 ```
