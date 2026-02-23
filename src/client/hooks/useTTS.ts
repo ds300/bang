@@ -29,8 +29,9 @@ function matchesLang(voiceLang: string, targetLang: string): boolean {
 // accented characters get spelled out letter by letter. Capitalizing the
 // first letter of such words works around it without affecting pronunciation.
 function fixAccentBug(text: string): string {
-  return text.replace(/\b([a-záéíóúñü]*[áéíóúñü][a-záéíóúñü]*)/gi, (word) =>
-    word.charAt(0).toUpperCase() + word.slice(1)
+  return text.replace(
+    /\b([a-záéíóúñü]*[áéíóúñü][a-záéíóúñü]*)/gi,
+    (word) => word.charAt(0).toUpperCase() + word.slice(1)
   );
 }
 
@@ -81,6 +82,7 @@ export function useTTS(lang: string, enabled: boolean) {
         if (!voice) continue;
 
         const normalized = fixAccentBug(trimmed.normalize("NFC"));
+        console.log("yosef", normalized);
         const utterance = new SpeechSynthesisUtterance(normalized);
         utterance.voice = voice;
         utterance.rate = seg.lang === "tl" ? 0.92 : 1.0;
@@ -98,7 +100,9 @@ export function useTTS(lang: string, enabled: boolean) {
       const voice = pickVoiceFresh(voiceLang === "nl" ? "en" : lang);
       if (!voice) return;
 
-      const utterance = new SpeechSynthesisUtterance(fixAccentBug(text.normalize("NFC")));
+      const utterance = new SpeechSynthesisUtterance(
+        fixAccentBug(text.normalize("NFC"))
+      );
       utterance.voice = voice;
       utterance.rate = voiceLang === "tl" ? 0.92 : 1.0;
       speechSynthesis.speak(utterance);

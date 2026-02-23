@@ -3,9 +3,8 @@ import ReactMarkdown from "react-markdown";
 import rehypeRaw from "rehype-raw";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
-import { Volume2, Check, Eye } from "lucide-react";
-import { SentenceSpan } from "./SentenceSpan";
-import { splitClauses, parseLangTags } from "@/lib/sentences";
+import { Volume2, Check, Eye, Loader2, ExternalLink } from "lucide-react";
+import { parseLangTags } from "@/lib/sentences";
 import type { TextSegment } from "@/lib/sentences";
 import type { ChatMessage } from "@/hooks/useSession";
 
@@ -16,42 +15,223 @@ interface MessageBubbleProps {
   autoPlay?: boolean;
   isLatest?: boolean;
   isCorrect?: boolean;
-  onRequestBreakdown?: (sentence: string) => void;
+  onRequestBreakdown?: (selection: string, context: string) => void;
 }
 
-function TargetLangText({
+interface TranslationTooltip {
+  x: number;
+  y: number;
+  selection: string;
+  context: string;
+  translation: string | null;
+  loading: boolean;
+}
+
+function tokenize(text: string): string[] {
+  return text.split(/(\s+)/);
+}
+
+function extractText(node: React.ReactNode): string {
+  if (typeof node === "string") return node;
+  if (Array.isArray(node)) return node.map(extractText).join("");
+  if (node && typeof node === "object" && "props" in node) {
+    const el = node as React.ReactElement<{ children?: React.ReactNode }>;
+    return extractText(el.props.children);
+  }
+  return "";
+}
+
+function TargetLangBlock({
   children,
   lang,
   onRequestBreakdown,
 }: {
-  children: React.ReactNode;
+  children?: React.ReactNode;
   lang: string;
-  onRequestBreakdown: (sentence: string) => void;
+  onRequestBreakdown?: (selection: string, context: string) => void;
 }) {
-  const text =
-    typeof children === "string"
-      ? children
-      : Array.isArray(children)
-        ? children
-            .map((c) => (typeof c === "string" ? c : ""))
-            .join("")
-        : "";
+  const containerRef = useRef<HTMLSpanElement>(null);
+  const tooltipRef = useRef<HTMLDivElement>(null);
+  const [tooltip, setTooltip] = useState<TranslationTooltip | null>(null);
+  const [selectedRange, setSelectedRange] = useState<[number, number] | null>(null);
+  const dragStartRef = useRef<number | null>(null);
+  const selectionRef = useRef<[number, number] | null>(null);
 
-  if (!text) return <>{children}</>;
+  const fullText = extractText(children);
+  const tokens = tokenize(fullText);
+  const tokensRef = useRef(tokens);
+  tokensRef.current = tokens;
 
-  const clauses = splitClauses(text);
+  function getWordIdxFromTarget(target: EventTarget | null): number | null {
+    if (!(target instanceof HTMLElement)) return null;
+    const idx = target.dataset?.wordIdx;
+    return idx != null ? parseInt(idx, 10) : null;
+  }
+
+  function getSelectedText(start: number, end: number): string {
+    const t = tokensRef.current;
+    let wordCount = -1;
+    const parts: string[] = [];
+    for (const token of t) {
+      if (token.trim()) {
+        wordCount++;
+        if (wordCount >= start && wordCount <= end) {
+          parts.push(token);
+        } else if (parts.length > 0 && wordCount > end) {
+          break;
+        }
+      } else if (wordCount >= start && wordCount <= end) {
+        parts.push(token);
+      }
+    }
+    return parts.join("").trim();
+  }
+
+  function showTooltipForSelection(start: number, end: number) {
+    const selectedText = getSelectedText(start, end);
+    if (!selectedText || !containerRef.current) return;
+
+    const wordEls = containerRef.current.querySelectorAll("[data-word-idx]");
+    const firstEl = wordEls[start] as HTMLElement | undefined;
+    const lastEl = wordEls[end] as HTMLElement | undefined;
+    if (!firstEl || !lastEl) return;
+
+    const firstRect = firstEl.getBoundingClientRect();
+    const lastRect = lastEl.getBoundingClientRect();
+    const x = (firstRect.left + lastRect.right) / 2;
+    const y = Math.min(firstRect.top, lastRect.top);
+
+    setTooltip({
+      x,
+      y,
+      selection: selectedText,
+      context: fullText,
+      translation: null,
+      loading: true,
+    });
+
+    fetch("/api/translate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ sentence: selectedText, lang, context: fullText }),
+    })
+      .then((r) => r.json())
+      .then((data) => {
+        setTooltip((prev) =>
+          prev ? { ...prev, translation: data.translation, loading: false } : null
+        );
+      })
+      .catch(() => {
+        setTooltip((prev) =>
+          prev ? { ...prev, translation: "(translation failed)", loading: false } : null
+        );
+      });
+  }
+
+  function handleMouseDown(e: React.MouseEvent) {
+    if (e.button !== 0) return;
+    const idx = getWordIdxFromTarget(e.target);
+    if (idx == null) return;
+
+    setTooltip(null);
+    dragStartRef.current = idx;
+    selectionRef.current = [idx, idx];
+    setSelectedRange([idx, idx]);
+    e.preventDefault();
+  }
+
+  function handleMouseMove(e: React.MouseEvent) {
+    if (dragStartRef.current == null) return;
+    const idx = getWordIdxFromTarget(e.target);
+    if (idx == null) return;
+
+    const start = Math.min(dragStartRef.current, idx);
+    const end = Math.max(dragStartRef.current, idx);
+    selectionRef.current = [start, end];
+    setSelectedRange([start, end]);
+  }
+
+  function handleMouseUp() {
+    if (dragStartRef.current == null || !selectionRef.current) return;
+    const [start, end] = selectionRef.current;
+    dragStartRef.current = null;
+    showTooltipForSelection(start, end);
+  }
+
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (
+        tooltipRef.current && !tooltipRef.current.contains(e.target as Node) &&
+        containerRef.current && !containerRef.current.contains(e.target as Node)
+      ) {
+        setTooltip(null);
+        setSelectedRange(null);
+      }
+    }
+    if (tooltip) {
+      document.addEventListener("mousedown", handleClickOutside);
+      return () => document.removeEventListener("mousedown", handleClickOutside);
+    }
+  }, [tooltip]);
+
+  function handleTooltipClick() {
+    if (!tooltip || !onRequestBreakdown) return;
+    onRequestBreakdown(tooltip.selection, tooltip.context);
+    setTooltip(null);
+    setSelectedRange(null);
+  }
+
+  let wordIdx = -1;
   return (
     <>
-      {clauses.map((clause, i) => (
-        <span key={i}>
-          <SentenceSpan
-            sentence={clause}
-            lang={lang}
-            onRequestBreakdown={onRequestBreakdown}
-          />
-          {i < clauses.length - 1 ? " " : ""}
-        </span>
-      ))}
+      <span
+        ref={containerRef}
+        className="tl-block"
+        onMouseDown={handleMouseDown}
+        onMouseMove={handleMouseMove}
+        onMouseUp={handleMouseUp}
+      >
+        {tokens.map((token, i) => {
+          if (!token.trim()) {
+            return <span key={i}>{token}</span>;
+          }
+          wordIdx++;
+          const idx = wordIdx;
+          const isSelected = selectedRange && idx >= selectedRange[0] && idx <= selectedRange[1];
+          return (
+            <span
+              key={i}
+              data-word-idx={idx}
+              className={cn(
+                "tl-word",
+                isSelected && "tl-word-selected"
+              )}
+            >
+              {token}
+            </span>
+          );
+        })}
+      </span>
+      {tooltip && (
+        <div
+          ref={tooltipRef}
+          className="fixed z-[100] rounded-lg border bg-popover px-3 py-2 shadow-md cursor-pointer"
+          style={{ left: tooltip.x, top: tooltip.y - 8, transform: "translate(-50%, -100%)" }}
+          onClick={handleTooltipClick}
+        >
+          {tooltip.loading ? (
+            <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
+              <Loader2 className="h-3 w-3 animate-spin" />
+              Translating...
+            </span>
+          ) : (
+            <span className="flex items-center gap-1.5">
+              <span className="text-sm">{tooltip.translation}</span>
+              <ExternalLink className="h-3 w-3 shrink-0 text-muted-foreground" />
+            </span>
+          )}
+        </div>
+      )}
     </>
   );
 }
@@ -124,6 +304,8 @@ export function MessageBubble({
 
   const segments = !isUser ? parseLangTags(message.text) : [];
 
+  console.log(message.text)
+
   useEffect(() => {
     if (
       !isUser &&
@@ -156,17 +338,14 @@ export function MessageBubble({
             <ReactMarkdown
               rehypePlugins={[rehypeRaw]}
               components={{
-                tl: ({ children }: { children?: React.ReactNode }) =>
-                  onRequestBreakdown ? (
-                    <TargetLangText
-                      lang={lang}
-                      onRequestBreakdown={onRequestBreakdown}
-                    >
-                      {children}
-                    </TargetLangText>
-                  ) : (
-                    <>{children}</>
-                  ),
+                tl: ({ children }: { children?: React.ReactNode }) => (
+                  <TargetLangBlock
+                    lang={lang}
+                    onRequestBreakdown={onRequestBreakdown}
+                  >
+                    {children}
+                  </TargetLangBlock>
+                ),
                 nl: ({ children }: { children?: React.ReactNode }) => (
                   <>{children}</>
                 ),

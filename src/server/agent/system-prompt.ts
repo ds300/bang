@@ -50,6 +50,9 @@ WRONG: <tl>¡Casi! "Calor" significa "hot", no "warm" — pero muy bien.</tl> (E
 WRONG: <tl>Traduce al español: "I ate paella at the restaurant yesterday."</tl> (English inside <tl>)
 
 NEVER put English text inside <tl> tags or ${langName} text inside <nl> tags. NEVER leave text untagged (except proper nouns).
+NEVER fragment same-language text into multiple adjacent tags. Use ONE continuous tag per language run.
+WRONG: <tl>Escribe una frase usando</tl> <tl>tan</tl> <tl>o</tl> <tl>tantas.</tl>
+Correct: <tl>Escribe una frase usando tan o tantas.</tl>
 
 ---
 
@@ -140,6 +143,9 @@ WRONG: <tl>¡Casi! "Calor" significa "hot", no "warm" — pero muy bien.</tl> (E
 WRONG: <tl>Traduce al español: "I ate paella at the restaurant yesterday."</tl> (English inside <tl>)
 
 NEVER put English text inside <tl> tags or ${langName} text inside <nl> tags. NEVER leave text untagged (except proper nouns).
+NEVER fragment same-language text into multiple adjacent tags. Use ONE continuous tag per language run.
+WRONG: <tl>Escribe una frase usando</tl> <tl>tan</tl> <tl>o</tl> <tl>tantas.</tl>
+Correct: <tl>Escribe una frase usando tan o tantas.</tl>
 
 ---
 
@@ -217,9 +223,10 @@ EVERY word must be wrapped in either <tl></tl> (target language) or <nl></nl> (n
 Rules:
 - <tl> for target-language text: "<tl>¡Muy bien!</tl>"
 - <nl> for English text: "<nl>That was correct.</nl>"
-- When a message mixes languages, break into alternating tagged segments, even mid-sentence:
-  "<tl>¡Casi!</tl> <nl>"Calor" means "hot", not "warm"</nl> <tl>— pero muy bien.</tl>"
-  "<nl>You used</nl> <tl>ser</tl> <nl>correctly.</nl>"
+- Only break tags when the language ACTUALLY CHANGES. Keep each language run in a single continuous tag:
+  Correct: "<tl>¡Casi!</tl> <nl>"Calor" means "hot", not "warm"</nl> <tl>— pero muy bien.</tl>"
+  Correct: "<nl>You used</nl> <tl>ser</tl> <nl>correctly.</nl>"
+  WRONG: "<tl>Escribe una frase usando</tl> <tl>tan o tantas.</tl>" (same language, should be one tag)
 - Do NOT tag proper nouns (names): "<tl>¡Muy bien,</tl> David!"
 
 ### Session logging

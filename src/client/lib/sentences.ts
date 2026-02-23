@@ -1,13 +1,3 @@
-/**
- * Split text into clauses for clickable translation spans.
- * Splits on commas, semicolons, colons, and sentence-ending punctuation,
- * keeping the punctuation attached to the preceding text.
- */
-export function splitClauses(text: string): string[] {
-  const parts = text.split(/(?<=[,;:.!?¿¡])\s+/);
-  return parts.filter((s) => s.trim().length > 0);
-}
-
 export type LangTag = "tl" | "nl";
 
 export interface TextSegment {
@@ -47,7 +37,18 @@ export function parseLangTags(text: string): TextSegment[] {
     });
   }
 
-  return segments;
+  const merged: TextSegment[] = [];
+  for (const seg of segments) {
+    if (!seg.text.trim()) continue;
+    const prev = merged[merged.length - 1];
+    if (prev && prev.lang === seg.lang) {
+      prev.text += seg.text;
+    } else {
+      merged.push({ ...seg });
+    }
+  }
+
+  return merged;
 }
 
 /**

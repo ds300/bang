@@ -122,3 +122,26 @@
     @apply bg-background text-foreground;
     }
 }
+
+.tl-block {
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.tl-word {
+  cursor: text;
+  border-radius: 2px;
+  transition: background-color 0.1s;
+}
+
+.tl-word:hover {
+  background: oklch(0.7 0.15 240 / 12%);
+}
+
+.tl-word-selected {
+  background: oklch(0.7 0.15 240 / 25%);
+}
+
+.tl-word-selected:hover {
+  background: oklch(0.7 0.15 240 / 25%);
+}

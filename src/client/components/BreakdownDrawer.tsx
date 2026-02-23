@@ -27,6 +27,7 @@ interface BreakdownDrawerProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   sentence: string | null;
+  context?: string | null;
   lang: string;
   speakText?: (text: string, voiceLang?: "tl" | "nl") => void;
 }
@@ -35,6 +36,7 @@ export function BreakdownDrawer({
   open,
   onOpenChange,
   sentence,
+  context,
   lang,
   speakText,
 }: BreakdownDrawerProps) {
@@ -60,7 +62,7 @@ export function BreakdownDrawer({
       const res = await fetch("/api/breakdown", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ sentence, lang }),
+        body: JSON.stringify({ sentence, lang, context: context ?? undefined }),
       });
       const data = await res.json();
       setBreakdown(data.breakdown);
@@ -79,7 +81,7 @@ export function BreakdownDrawer({
     } finally {
       setLoading(false);
     }
-  }, [sentence, lang]);
+  }, [sentence, lang, context]);
 
   useEffect(() => {
     if (open && sentence) {

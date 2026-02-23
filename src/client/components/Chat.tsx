@@ -30,6 +30,7 @@ export function Chat({ session, audioEnabled, onToggleAudio, targetLangMode, onT
   const [breakdownSentence, setBreakdownSentence] = useState<string | null>(
     null
   );
+  const [breakdownContext, setBreakdownContext] = useState<string | null>(null);
 
   const scrollAreaRef = useCallback((node: HTMLDivElement | null) => {
     if (!node) return;
@@ -54,8 +55,9 @@ export function Chat({ session, audioEnabled, onToggleAudio, targetLangMode, onT
     if (!audioEnabled) stop();
   }, [audioEnabled, stop]);
 
-  const handleRequestBreakdown = useCallback((sentence: string) => {
-    setBreakdownSentence(sentence);
+  const handleRequestBreakdown = useCallback((selection: string, context: string) => {
+    setBreakdownSentence(selection);
+    setBreakdownContext(context);
     setDrawerOpen(true);
   }, []);
 
@@ -202,6 +204,7 @@ export function Chat({ session, audioEnabled, onToggleAudio, targetLangMode, onT
         open={drawerOpen}
         onOpenChange={setDrawerOpen}
         sentence={breakdownSentence}
+        context={breakdownContext}
         lang={session.lang}
         speakText={speakText}
       />
