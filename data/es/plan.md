@@ -31,6 +31,12 @@
     "concepts": ["tan / tanto / tanta / tantos / tantas"],
     "description": "Introduced tan/tanto comparatives and intensifiers; followed by exercises",
     "status": "completed"
+  },
+  {
+    "sessionType": "practice",
+    "concepts": ["pretérito indefinido — irregular verbs", "ser vs estar", "gender agreement", "tan/tanto/tanta/tantos/tantas", "pretérito indefinido — regular conjugation"],
+    "description": "Practice session consolidating indefinido irregulars, ser/estar, gender agreement, and tan/tanto",
+    "status": "completed"
   }
 ]
 ```
