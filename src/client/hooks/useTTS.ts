@@ -54,8 +54,15 @@ function pickVoiceFresh(lang: string): SpeechSynthesisVoice | null {
   return decentVoices[0] ?? langVoices[0]!;
 }
 
+export const PLAYBACK_RATES = [0.5, 0.7, 1] as const;
+export type PlaybackRate = (typeof PLAYBACK_RATES)[number];
+
+/** Default playback rate; can be wired to user settings later. */
+const BASE_PLAYBACK_RATE: PlaybackRate = 1;
+
 export function useTTS(lang: string, enabled: boolean) {
   const [ready, setReady] = useState(false);
+  const [playingId, setPlayingId] = useState<string | null>(null);
 
   useEffect(() => {
     function checkReady() {
@@ -68,10 +75,15 @@ export function useTTS(lang: string, enabled: boolean) {
   }, [lang]);
 
   const speakSegments = useCallback(
-    (segments: TextSegment[]) => {
+    (
+      segments: TextSegment[],
+      rate: PlaybackRate = BASE_PLAYBACK_RATE,
+      playbackId?: string
+    ) => {
       if (!enabled) return;
 
       speechSynthesis.cancel();
+      const utterances: SpeechSynthesisUtterance[] = [];
 
       for (const seg of segments) {
         const trimmed = seg.text.trim();
@@ -81,29 +93,47 @@ export function useTTS(lang: string, enabled: boolean) {
         const voice = pickVoiceFresh(voiceLang);
         if (!voice) continue;
 
+        const base = seg.lang === "tl" ? 0.92 : 1.0;
         const normalized = fixAccentBug(trimmed.normalize("NFC"));
         const utterance = new SpeechSynthesisUtterance(normalized);
         utterance.voice = voice;
-        utterance.rate = seg.lang === "tl" ? 0.92 : 1.0;
-        speechSynthesis.speak(utterance);
+        utterance.rate = base * rate;
+        utterances.push(utterance);
+      }
+
+      if (utterances.length === 0) return;
+
+      const last = utterances[utterances.length - 1]!;
+      last.onend = () => setPlayingId(null);
+      setPlayingId(playbackId ?? null);
+      for (const u of utterances) {
+        speechSynthesis.speak(u);
       }
     },
     [enabled, lang]
   );
 
   const speakText = useCallback(
-    (text: string, voiceLang: "tl" | "nl" = "tl") => {
+    (
+      text: string,
+      voiceLang: "tl" | "nl" = "tl",
+      rate: PlaybackRate = BASE_PLAYBACK_RATE,
+      playbackId?: string
+    ) => {
       if (!enabled) return;
       speechSynthesis.cancel();
 
       const voice = pickVoiceFresh(voiceLang === "nl" ? "en" : lang);
       if (!voice) return;
 
+      const base = voiceLang === "tl" ? 0.92 : 1.0;
       const utterance = new SpeechSynthesisUtterance(
         fixAccentBug(text.normalize("NFC"))
       );
       utterance.voice = voice;
-      utterance.rate = voiceLang === "tl" ? 0.92 : 1.0;
+      utterance.rate = base * rate;
+      utterance.onend = () => setPlayingId(null);
+      setPlayingId(playbackId ?? null);
       speechSynthesis.speak(utterance);
     },
     [enabled, lang]
@@ -111,7 +141,8 @@ export function useTTS(lang: string, enabled: boolean) {
 
   const stop = useCallback(() => {
     speechSynthesis.cancel();
+    setPlayingId(null);
   }, []);
 
-  return { speakSegments, speakText, stop, ready };
+  return { speakSegments, speakText, stop, ready, playingId };
 }

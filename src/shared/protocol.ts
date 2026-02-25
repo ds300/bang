@@ -3,6 +3,7 @@ import type { ChatMessage, AgentStep } from "./types";
 // Client -> Server
 export type ClientMessage =
   | { type: "new_session"; lang: string }
+  | { type: "resume_session"; sessionId: string }
   | { type: "chat"; text: string }
   | { type: "end_session"; discard?: boolean }
   | { type: "get_state" };
@@ -17,7 +18,7 @@ export type ServerMessage =
       lang: string | null;
       onboarded: boolean;
     }
-  | { type: "assistant_message"; text: string; messageId: string }
+  | { type: "assistant_message"; text: string; messageId: string; onboarded: boolean }
   | { type: "user_message_ack"; messageId: string }
   | { type: "agent_thinking"; thinking: boolean }
   | { type: "agent_step"; step: AgentStep }

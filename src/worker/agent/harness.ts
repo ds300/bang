@@ -44,6 +44,8 @@ export async function runAgentTurn(
 
     let response: Anthropic.Message;
     try {
+      console.log("systemPrompt", systemPrompt);
+      console.log("currentMessages", currentMessages);
       response = await client.messages.create({
         model,
         max_tokens: 2048,
@@ -51,6 +53,7 @@ export async function runAgentTurn(
         messages: currentMessages,
         tools: tools.length > 0 ? tools : undefined,
       });
+      console.log("yosef", response.content);
     } catch (err: unknown) {
       const status = (err as { status?: number }).status;
       if (status === 529 && i < maxIterations - 1) {

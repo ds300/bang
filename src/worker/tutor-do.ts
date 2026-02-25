@@ -1,4 +1,5 @@
 import { DurableObject } from "cloudflare:workers";
+import { nanoid } from "nanoid";
 import { initSchema } from "./db/schema";
 import { buildSystemPrompt } from "./agent/prompts";
 import { getTools } from "./agent/tools";
@@ -50,8 +51,47 @@ export class TutorDO extends DurableObject<Env> {
     if (url.pathname === "/debug") {
       return this.handleDebug(request);
     }
+    if (url.pathname === "/sessions" && request.method === "GET") {
+      return this.handleSessionsList();
+    }
+    const sessionsMessagesMatch = /^\/sessions\/([^/]+)\/messages$/.exec(url.pathname);
+    if (sessionsMessagesMatch && request.method === "GET") {
+      return this.handleSessionMessages(sessionsMessagesMatch[1]);
+    }
 
     return new Response("Not found", { status: 404 });
+  }
+
+  private handleSessionsList(): Response {
+    const rows = [
+      ...this.sql.exec(
+        "SELECT id, lang, type, status, started_at, ended_at FROM sessions ORDER BY started_at DESC LIMIT 20",
+      ),
+    ];
+    return Response.json({
+      sessions: rows.map((r) => ({
+        id: (r as Record<string, unknown>).id,
+        lang: (r as Record<string, unknown>).lang,
+        type: (r as Record<string, unknown>).type,
+        status: (r as Record<string, unknown>).status,
+        started_at: (r as Record<string, unknown>).started_at,
+        ended_at: (r as Record<string, unknown>).ended_at,
+      })),
+    });
+  }
+
+  private handleSessionMessages(sessionId: string): Response {
+    const sessionRow = [
+      ...this.sql.exec("SELECT id, lang, started_at, ended_at FROM sessions WHERE id = ?", sessionId),
+    ][0] as Record<string, unknown> | undefined;
+    if (!sessionRow) {
+      return Response.json({ error: "Session not found" }, { status: 404 });
+    }
+    const messages = this.getSessionMessages(sessionId);
+    return Response.json({
+      session: { id: sessionRow.id, lang: sessionRow.lang, started_at: sessionRow.started_at, ended_at: sessionRow.ended_at },
+      messages,
+    });
   }
 
   private async sendInitialState(ws: WebSocket): Promise<void> {
@@ -83,6 +123,11 @@ export class TutorDO extends DurableObject<Env> {
       lang,
       onboarded: (langProfile?.onboarded ?? 0) === 1,
     };
+  }
+
+  private isOnboarded(lang: string): boolean {
+    const row = [...this.sql.exec("SELECT onboarded FROM lang_profile WHERE lang = ?", lang)][0] as { onboarded: number } | undefined;
+    return (row?.onboarded ?? 0) === 1;
   }
 
   private getActiveSession(): Record<string, unknown> | null {
@@ -128,6 +173,9 @@ export class TutorDO extends DurableObject<Env> {
       case "new_session":
         await this.handleNewSession(ws, msg.lang);
         break;
+      case "resume_session":
+        await this.handleResumeSession(ws, msg.sessionId);
+        break;
       case "chat":
         await this.handleChat(ws, msg.text);
         break;
@@ -153,7 +201,7 @@ export class TutorDO extends DurableObject<Env> {
       "UPDATE sessions SET status = 'completed', ended_at = datetime('now') WHERE status = 'active'",
     );
 
-    const sessionId = crypto.randomUUID();
+    const sessionId = nanoid();
     this.sql.exec(
       "INSERT INTO sessions (id, lang, type, status, started_at) VALUES (?, ?, 'practice', 'active', datetime('now'))",
       sessionId,
@@ -183,6 +231,7 @@ export class TutorDO extends DurableObject<Env> {
         type: "assistant_message",
         text: responseText,
         messageId,
+        onboarded: this.isOnboarded(lang),
       });
     } catch (err) {
       this.wsSend(ws, { type: "agent_thinking", thinking: false });
@@ -191,6 +240,26 @@ export class TutorDO extends DurableObject<Env> {
         message: `Agent error: ${err instanceof Error ? err.message : "Unknown error"}`,
       });
     }
+  }
+
+  private async handleResumeSession(ws: WebSocket, sessionId: string): Promise<void> {
+    const row = [
+      ...this.sql.exec("SELECT id, lang, status FROM sessions WHERE id = ?", sessionId),
+    ][0] as Record<string, unknown> | undefined;
+    if (!row) {
+      this.wsSend(ws, { type: "error", message: "Session not found" });
+      return;
+    }
+
+    this.sql.exec(
+      "UPDATE sessions SET status = 'completed', ended_at = datetime('now') WHERE status = 'active'",
+    );
+    this.sql.exec(
+      "UPDATE sessions SET status = 'active', ended_at = NULL WHERE id = ?",
+      sessionId,
+    );
+
+    this.wsSend(ws, this.getCurrentState());
   }
 
   private async handleChat(ws: WebSocket, text: string): Promise<void> {
@@ -233,6 +302,7 @@ export class TutorDO extends DurableObject<Env> {
         type: "assistant_message",
         text: responseText,
         messageId,
+        onboarded: this.isOnboarded(lang),
       });
     } catch (err) {
       this.wsSend(ws, { type: "agent_thinking", thinking: false });

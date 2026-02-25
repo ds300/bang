@@ -4,7 +4,6 @@ import { Button } from "@/components/ui/button";
 import { MessageBubble } from "./MessageBubble";
 import { ChatInput } from "./ChatInput";
 import { LanguagePicker } from "./LanguagePicker";
-import { SessionControls } from "./SessionControls";
 import { BreakdownDrawer } from "./BreakdownDrawer";
 import { Loader2, Volume2, VolumeOff } from "lucide-react";
 import { useTTS } from "@/hooks/useTTS";
@@ -12,23 +11,36 @@ import type { useSession } from "@/hooks/useSession";
 
 type SessionState = ReturnType<typeof useSession>;
 
+export interface ViewOnlySession {
+  messages: { id: string; role: "user" | "assistant"; text: string }[];
+  started_at: string;
+  lang: string;
+}
+
 interface ChatProps {
   session: SessionState;
   audioEnabled: boolean;
   onToggleAudio: () => void;
+  viewOnly?: ViewOnlySession | null;
+  /** When set (e.g. when viewing a past session), used instead of session.sendChat so the parent can resume then send */
+  onSend?: (text: string) => void;
 }
 
 const NEAR_BOTTOM_THRESHOLD = 80;
 
-export function Chat({ session, audioEnabled, onToggleAudio }: ChatProps) {
+export function Chat({ session, audioEnabled, onToggleAudio, viewOnly = null, onSend }: ChatProps) {
   const viewportRef = useRef<HTMLElement | null>(null);
   const isNearBottom = useRef(true);
-  const { speakSegments, speakText, stop } = useTTS(session.lang, audioEnabled);
+  const lang = viewOnly?.lang ?? session.lang;
+  const { speakSegments, speakText, stop, playingId } = useTTS(lang, audioEnabled);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [breakdownSentence, setBreakdownSentence] = useState<string | null>(
     null,
   );
   const [breakdownContext, setBreakdownContext] = useState<string | null>(null);
+
+  const messages = viewOnly?.messages ?? session.messages;
+  const isViewingPast = !!viewOnly;
 
   const scrollAreaRef = useCallback((node: HTMLDivElement | null) => {
     if (!node) return;
@@ -48,7 +60,7 @@ export function Chat({ session, audioEnabled, onToggleAudio }: ChatProps) {
     if (vp && isNearBottom.current) {
       vp.scrollTop = vp.scrollHeight;
     }
-  }, [session.messages, session.agentThinking]);
+  }, [messages, session.agentThinking]);
 
   useEffect(() => {
     if (!audioEnabled) stop();
@@ -63,20 +75,24 @@ export function Chat({ session, audioEnabled, onToggleAudio }: ChatProps) {
     [],
   );
 
-  const showWelcome = !session.sessionActive && session.messages.length === 0;
+  const showWelcome = !isViewingPast && !session.sessionActive && messages.length === 0;
 
   return (
-    <div className="flex h-screen flex-col">
+    <div className="flex h-full flex-col">
       {/* Header */}
       <header className="border-b px-4 py-3">
         <div className="mx-auto flex max-w-2xl items-center justify-between">
           <div className="flex items-center gap-3">
-            <h1 className="text-lg font-semibold tracking-tight">Bang</h1>
             <LanguagePicker
-              currentLang={session.lang}
+              currentLang={lang}
               onSelect={session.setLang}
-              disabled={session.sessionActive}
+              disabled={session.sessionActive || isViewingPast}
             />
+            {isViewingPast && (
+              <span className="text-sm text-muted-foreground">
+                Continue session
+              </span>
+            )}
           </div>
           <div className="flex items-center gap-2">
             <Button
@@ -91,11 +107,6 @@ export function Chat({ session, audioEnabled, onToggleAudio }: ChatProps) {
                 <VolumeOff className="h-4 w-4" />
               )}
             </Button>
-            <SessionControls
-              sessionActive={session.sessionActive}
-              onStartSession={session.startSession}
-              onEndSession={session.endSession}
-            />
           </div>
         </div>
       </header>
@@ -117,8 +128,8 @@ export function Chat({ session, audioEnabled, onToggleAudio }: ChatProps) {
               </div>
             )}
 
-            {session.messages.map((msg, i) => {
-              const nextMsg = session.messages[i + 1];
+            {messages.map((msg, i) => {
+              const nextMsg = messages[i + 1];
               const isUser = msg.role === "user";
 
               const nextStartsWithTick =
@@ -135,11 +146,13 @@ export function Chat({ session, audioEnabled, onToggleAudio }: ChatProps) {
                   <MessageBubble
                     key={msg.id}
                     message={{ ...msg, text: rest }}
-                    lang={session.lang}
+                    lang={lang}
                     onboarded={session.onboarded}
                     speakSegments={speakSegments}
-                    autoPlay={audioEnabled && !session.restored}
-                    isLatest={i === session.messages.length - 1}
+                    onStop={stop}
+                    playingId={playingId}
+                    autoPlay={audioEnabled && !session.restored && !isViewingPast}
+                    isLatest={i === messages.length - 1}
                     isCorrect={false}
                     onRequestBreakdown={handleRequestBreakdown}
                   />
@@ -150,11 +163,13 @@ export function Chat({ session, audioEnabled, onToggleAudio }: ChatProps) {
                 <MessageBubble
                   key={msg.id}
                   message={msg}
-                  lang={session.lang}
+                  lang={lang}
                   onboarded={session.onboarded}
                   speakSegments={speakSegments}
-                  autoPlay={audioEnabled && !session.restored}
-                  isLatest={i === session.messages.length - 1}
+                  onStop={stop}
+                  playingId={playingId}
+                  autoPlay={audioEnabled && !session.restored && !isViewingPast}
+                  isLatest={i === messages.length - 1}
                   isCorrect={markedCorrect}
                   onRequestBreakdown={handleRequestBreakdown}
                 />
@@ -171,21 +186,29 @@ export function Chat({ session, audioEnabled, onToggleAudio }: ChatProps) {
         </ScrollArea>
       </div>
 
-      {/* Input */}
+      {/* Input — always shown so user can continue any session */}
       <div className="border-t px-4 py-3">
         <div className="mx-auto max-w-2xl">
           <ChatInput
-            onSend={session.sendChat}
-            disabled={!session.sessionActive || session.agentThinking}
-            shouldFocus={session.sessionActive && !session.agentThinking}
+            onSend={onSend ?? session.sendChat}
+            disabled={session.agentThinking}
+            shouldFocus={
+              (session.sessionActive || isViewingPast) && !session.agentThinking
+            }
+            userMessageHistory={messages
+              .filter((m) => m.role === "user")
+              .map((m) => m.text)
+              .reverse()}
             placeholder={
-              !session.sessionActive
-                ? session.messages.length > 0
-                  ? "Session ended — press + to continue"
-                  : "Press + to start a session"
-                : session.agentThinking
-                  ? "Waiting for response..."
-                  : "Type a message..."
+              session.agentThinking
+                ? "Waiting for response..."
+                : isViewingPast
+                  ? "Continue this session..."
+                  : !session.sessionActive
+                    ? messages.length > 0
+                      ? "Session ended — type to continue or press + for new session"
+                      : "Press + to start a session"
+                    : "Type a message..."
             }
           />
         </div>
@@ -197,8 +220,10 @@ export function Chat({ session, audioEnabled, onToggleAudio }: ChatProps) {
         onOpenChange={setDrawerOpen}
         sentence={breakdownSentence}
         context={breakdownContext}
-        lang={session.lang}
+        lang={lang}
         speakText={speakText}
+        onStop={stop}
+        playingId={playingId}
       />
     </div>
   );

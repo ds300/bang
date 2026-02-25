@@ -8,6 +8,8 @@ interface ChatInputProps {
   disabled?: boolean;
   placeholder?: string;
   shouldFocus?: boolean;
+  /** Previous user messages in this session (newest first) for Up/Down history */
+  userMessageHistory?: string[];
 }
 
 export function ChatInput({
@@ -15,8 +17,11 @@ export function ChatInput({
   disabled,
   placeholder = "Type a message...",
   shouldFocus,
+  userMessageHistory = [],
 }: ChatInputProps) {
   const [text, setText] = useState("");
+  const [historyIndex, setHistoryIndex] = useState(-1);
+  const draftRef = useRef("");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
@@ -25,18 +30,58 @@ export function ChatInput({
     }
   }, [shouldFocus, disabled]);
 
+  useEffect(() => {
+    if (historyIndex >= 0 && historyIndex < userMessageHistory.length) {
+      setText(userMessageHistory[historyIndex] ?? "");
+    }
+  }, [historyIndex, userMessageHistory]);
+
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!text.trim() || disabled) return;
     onSend(text.trim());
     setText("");
+    setHistoryIndex(-1);
+    draftRef.current = "";
   }
 
   function handleKeyDown(e: React.KeyboardEvent) {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       handleSubmit(e);
+      return;
     }
+    if (e.key === "ArrowUp" || e.key === "ArrowDown") {
+      if (userMessageHistory.length === 0) return;
+      if (e.key === "ArrowUp") {
+        e.preventDefault();
+        if (historyIndex < 0) {
+          draftRef.current = text;
+          setHistoryIndex(0);
+          setText(userMessageHistory[0] ?? "");
+        } else if (historyIndex < userMessageHistory.length - 1) {
+          setHistoryIndex(historyIndex + 1);
+          setText(userMessageHistory[historyIndex + 1] ?? "");
+        }
+        return;
+      }
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        if (historyIndex <= 0) {
+          setHistoryIndex(-1);
+          setText(draftRef.current);
+        } else {
+          setHistoryIndex(historyIndex - 1);
+          setText(userMessageHistory[historyIndex - 1] ?? "");
+        }
+        return;
+      }
+    }
+  }
+
+  function handleChange(value: string) {
+    setText(value);
+    if (historyIndex >= 0) setHistoryIndex(-1);
   }
 
   return (
@@ -44,7 +89,7 @@ export function ChatInput({
       <Textarea
         ref={textareaRef}
         value={text}
-        onChange={(e) => setText(e.target.value)}
+        onChange={(e) => handleChange(e.target.value)}
         onKeyDown={handleKeyDown}
         placeholder={placeholder}
         disabled={disabled}

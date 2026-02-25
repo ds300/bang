@@ -18,6 +18,8 @@ import {
   ArrowDownRight,
   Send,
 } from "lucide-react";
+import { AudioReplayButton } from "@/components/AudioReplayButton";
+import type { PlaybackRate } from "@/hooks/useTTS";
 
 interface ConversationEntry {
   role: "user" | "assistant";
@@ -30,7 +32,9 @@ interface BreakdownDrawerProps {
   sentence: string | null;
   context?: string | null;
   lang: string;
-  speakText?: (text: string, voiceLang?: "tl" | "nl") => void;
+  speakText?: (text: string, voiceLang?: "tl" | "nl", rate?: PlaybackRate, playbackId?: string) => void;
+  onStop?: () => void;
+  playingId?: string | null;
 }
 
 export function BreakdownDrawer({
@@ -40,6 +44,8 @@ export function BreakdownDrawer({
   context,
   lang,
   speakText,
+  onStop,
+  playingId,
 }: BreakdownDrawerProps) {
   const [breakdown, setBreakdown] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -158,19 +164,17 @@ export function BreakdownDrawer({
         <ScrollArea className="flex-1">
           <div className="space-y-4 px-4 pb-4">
             {/* Original sentence with replay */}
-            {sentence && (
+            {sentence && speakText && (
               <div className="flex items-start gap-2 rounded-lg bg-muted p-3">
                 <p className="flex-1 text-sm font-medium italic">{sentence}</p>
-                {speakText && (
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-7 w-7 shrink-0"
-                    onClick={() => speakText(sentence, "tl")}
-                  >
-                    <Volume2 className="h-3.5 w-3.5" />
-                  </Button>
-                )}
+                <AudioReplayButton
+                  onReplay={(rate) =>
+                    speakText(sentence!, "tl", rate, `breakdown-${sentence}`)
+                  }
+                  onStop={onStop}
+                  isPlaying={playingId === `breakdown-${sentence}`}
+                  className="h-7 w-7 shrink-0"
+                />
               </div>
             )}
 

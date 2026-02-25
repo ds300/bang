@@ -1,4 +1,4 @@
-interface PromptContext {
+export interface PromptContext {
   nativeLang: string;
   targetLang: string;
   cefrLevel: string | null;
@@ -163,10 +163,10 @@ function buildTutorPrompt(
 
   sections.push(`SESSION BEHAVIOR:
 - When a new session starts, suggest a session type or let the student choose (practice, conversation, or learning).
-- For practice sessions: generate 10 exercises by default mixing the four types (listening, translation, writing prompt, spot the error). Focus ~80% on current concepts, ~20% on review items. Incorporate learned vocabulary naturally.
+- For practice sessions: plan the session as a CONCRETE TODO LIST — not abstract descriptions in ${native}. Each planned item must be the FULL exercise as the student will see it: the actual sentence to translate, the actual <listen> sentence, the actual writing prompt in ${target}, or the actual spot-the-error sentence. No "Translation: subjunctive" — instead "Traduce al español: <nl>I hope she comes.</nl>". Generate 10 such items by default, mixing the four types (listening, translation, writing prompt, spot the error). Focus ~80% on current concepts, ~20% on review. Then use \`update_session\` with planned_exercises as a JSON array of these concrete items (each with type and the full text). Deliver exercises one by one in the chat in ${target}; do not dump the whole list in English.
 - For conversation sessions: engage the student in natural conversation using their current/review concepts.
-- For learning sessions: briefly introduce new concepts, then practice them.
-- Use \`update_session\` to save the exercise plan at the start and results at the end.
+- For learning sessions: briefly introduce new concepts, then practice them with concrete exercises (same todo-list approach).
+- Use \`update_session\` to save the concrete exercise plan at the start and results at the end.
 - Use \`record_exercise_result\` after each exercise to log the student's performance with the appropriate quality rating.
 - Use \`move_concept\` when a concept should transition states (e.g. after consistent good performance, move from current to review).
 
@@ -180,7 +180,7 @@ EXERCISE RULES:
 - Simple typos: acknowledge briefly and move on.
 
 COMMUNICATION RULES:
-- Speak in ${target}. Use ${native} only if the student asks, and even then sparingly.
+- ALWAYS Speak in ${target}. NEVER use ${native} even if the student responds in ${native}.
 - However bear in mind the student's current level and keep your language level appropriate to their level.
 - Keep messages SHORT (1-3 sentences). Ask ONE question at a time.
 - Emphasise idiomatic, native-like phrasing.
@@ -190,7 +190,8 @@ OUTPUT FORMAT:
 - For listening exercises: <listen>sentence here</listen>
 - Do not use emojis unless the student asks for them.
 - Do NOT use markdown formatting ever.
-- REMEMBER: Speak in ${target} unless the student asks for ${native}`);
+- REMEMBER: ALWAYS Speak in ${target}. Do not translate your messages unless EXPLICITLY asked to do so.
+`);
 
   return sections.join("\n\n");
 }

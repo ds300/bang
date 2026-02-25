@@ -1,6 +1,7 @@
 import { handleSignup, handleLogin, extractDoId } from "./auth";
 import { handleTranslate } from "./routes/translate";
 import { handleBreakdown, handleBreakdownAsk } from "./routes/breakdown";
+import { handlePromptTestGet, handlePromptTestPost } from "./routes/prompt-test";
 
 export { TutorDO } from "./tutor-do";
 
@@ -71,6 +72,14 @@ export default {
         await handleBreakdownAsk(request, env.ANTHROPIC_API_KEY),
       );
     }
+    if (url.pathname === "/api/prompt-test" && request.method === "GET") {
+      return corsResponse(handlePromptTestGet());
+    }
+    if (url.pathname === "/api/prompt-test" && request.method === "POST") {
+      return corsResponse(
+        await handlePromptTestPost(request, env.ANTHROPIC_API_KEY),
+      );
+    }
 
     // Routes that go to the Durable Object
     const objId = env.TUTOR.idFromName(doId);
@@ -87,6 +96,22 @@ export default {
       debugUrl.search = url.search;
       return corsResponse(
         await stub.fetch(new Request(debugUrl.toString())),
+      );
+    }
+
+    // Sessions list -> DO
+    if (url.pathname === "/api/sessions" && request.method === "GET") {
+      return corsResponse(
+        await stub.fetch(new Request("https://do/sessions")),
+      );
+    }
+
+    // Session messages -> DO
+    const sessionMessagesMatch = /^\/api\/sessions\/([^/]+)\/messages$/.exec(url.pathname);
+    if (sessionMessagesMatch && request.method === "GET") {
+      const sessionId = sessionMessagesMatch[1];
+      return corsResponse(
+        await stub.fetch(new Request(`https://do/sessions/${sessionId}/messages`)),
       );
     }
 

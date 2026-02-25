@@ -1,19 +1,20 @@
 import { useEffect, useRef, useState } from "react";
-import ReactMarkdown from "react-markdown";
-import rehypeRaw from "rehype-raw";
 import { cn } from "@/lib/utils";
 import { apiFetch } from "@/lib/api";
-import { Button } from "@/components/ui/button";
-import { Volume2, Check, Eye, Loader2, ExternalLink } from "lucide-react";
+import { AudioReplayButton } from "@/components/AudioReplayButton";
+import { Check, Eye, Loader2, ExternalLink } from "lucide-react";
 import { parseLangTags } from "@/lib/sentences";
 import type { TextSegment } from "@/lib/sentences";
 import type { ChatMessage } from "@/hooks/useSession";
+import type { PlaybackRate } from "@/hooks/useTTS";
 
 interface MessageBubbleProps {
   message: ChatMessage;
   lang: string;
   onboarded: boolean;
-  speakSegments?: (segments: TextSegment[]) => void;
+  speakSegments?: (segments: TextSegment[], rate?: PlaybackRate, playbackId?: string) => void;
+  onStop?: () => void;
+  playingId?: string | null;
   autoPlay?: boolean;
   isLatest?: boolean;
   isCorrect?: boolean;
@@ -29,57 +30,43 @@ interface TranslationTooltip {
   loading: boolean;
 }
 
-/**
- * Wrap untagged text runs in the given default language tag so that
- * ReactMarkdown renders every run through the appropriate component.
- */
-function normalizeMessageTags(text: string, defaultTag: "tl" | "nl"): string {
+function tokenize(text: string): string[] {
+  return text.split(/(\s+)/);
+}
+
+/** Parse message into segments with raw text so selection works for any structure */
+function parseMessageSegments(
+  text: string,
+  defaultTag: "tl" | "nl"
+): Array<{ type: "tl" | "nl" | "listen"; text: string }> {
+  const segments: Array<{ type: "tl" | "nl" | "listen"; text: string }> = [];
   const regex = /<(tl|nl|listen)>([\s\S]*?)<\/\1>/g;
-  let result = "";
   let lastIndex = 0;
   let match;
 
   while ((match = regex.exec(text)) !== null) {
     const gap = text.slice(lastIndex, match.index);
     if (gap.trim()) {
-      result += `<${defaultTag}>${gap}</${defaultTag}>`;
-    } else {
-      result += gap;
+      segments.push({ type: defaultTag, text: gap });
     }
-    result += match[0];
+    segments.push({ type: match[1] as "tl" | "nl" | "listen", text: match[2] ?? "" });
     lastIndex = match.index + match[0].length;
   }
 
   const tail = text.slice(lastIndex);
   if (tail.trim()) {
-    result += `<${defaultTag}>${tail}</${defaultTag}>`;
-  } else {
-    result += tail;
+    segments.push({ type: defaultTag, text: tail });
   }
 
-  return result;
-}
-
-function tokenize(text: string): string[] {
-  return text.split(/(\s+)/);
-}
-
-function extractText(node: React.ReactNode): string {
-  if (typeof node === "string") return node;
-  if (Array.isArray(node)) return node.map(extractText).join("");
-  if (node && typeof node === "object" && "props" in node) {
-    const el = node as React.ReactElement<{ children?: React.ReactNode }>;
-    return extractText(el.props.children);
-  }
-  return "";
+  return segments;
 }
 
 function TargetLangBlock({
-  children,
+  rawText,
   lang,
   onRequestBreakdown,
 }: {
-  children?: React.ReactNode;
+  rawText: string;
   lang: string;
   onRequestBreakdown?: (selection: string, context: string) => void;
 }) {
@@ -90,7 +77,7 @@ function TargetLangBlock({
   const dragStartRef = useRef<number | null>(null);
   const selectionRef = useRef<[number, number] | null>(null);
 
-  const fullText = extractText(children);
+  const fullText = rawText;
   const tokens = tokenize(fullText);
   const tokensRef = useRef(tokens);
   tokensRef.current = tokens;
@@ -272,9 +259,15 @@ function TargetLangBlock({
 function ListenBlock({
   children,
   speakSegments,
+  onStop,
+  playingId,
+  playbackId,
 }: {
   children?: React.ReactNode;
-  speakSegments?: (segments: TextSegment[]) => void;
+  speakSegments?: (segments: TextSegment[], rate?: PlaybackRate, playbackId?: string) => void;
+  onStop?: () => void;
+  playingId?: string | null;
+  playbackId: string;
 }) {
   const [revealed, setRevealed] = useState(false);
 
@@ -288,12 +281,8 @@ function ListenBlock({
     return "";
   }
 
-  function handleReplay() {
-    const text = extractText(children);
-    if (text && speakSegments) {
-      speakSegments([{ text, lang: "tl" }]);
-    }
-  }
+  const text = extractText(children);
+  const segments = text ? [{ text, lang: "tl" as const }] : [];
 
   if (revealed) {
     return <>{children}</>;
@@ -304,13 +293,16 @@ function ListenBlock({
       <span className="select-none blur-sm opacity-50" aria-hidden>
         {children}
       </span>
-      <button
-        onClick={handleReplay}
-        className="inline-flex items-center gap-1 rounded-md bg-muted-foreground/10 px-2 py-0.5 text-xs hover:bg-muted-foreground/20 transition-colors"
-        title="Replay audio"
-      >
-        <Volume2 className="h-3 w-3" />
-      </button>
+      {speakSegments && (
+        <AudioReplayButton
+          onReplay={(rate) => speakSegments(segments, rate, playbackId)}
+          onStop={onStop}
+          isPlaying={playingId === playbackId}
+          className="inline-flex h-auto gap-1 rounded-md bg-muted-foreground/10 px-2 py-0.5 text-xs hover:bg-muted-foreground/20"
+          size="sm"
+          iconClassName="h-3 w-3"
+        />
+      )}
       <button
         onClick={() => setRevealed(true)}
         className="inline-flex items-center gap-1 rounded-md bg-muted-foreground/10 px-2 py-0.5 text-xs hover:bg-muted-foreground/20 transition-colors"
@@ -328,6 +320,8 @@ export function MessageBubble({
   lang,
   onboarded,
   speakSegments,
+  onStop,
+  playingId,
   autoPlay,
   isLatest,
   isCorrect,
@@ -337,8 +331,9 @@ export function MessageBubble({
   const hasAutoPlayed = useRef(false);
 
   const defaultLang: "tl" | "nl" = onboarded ? "tl" : "nl";
-  const segments = !isUser ? parseLangTags(message.text, defaultLang) : [];
-  const normalizedText = !isUser ? normalizeMessageTags(message.text, defaultLang) : message.text;
+  const segmentsForTTS = !isUser ? parseLangTags(message.text, defaultLang) : [];
+  const segmentsForRender =
+    !isUser ? parseMessageSegments(message.text, defaultLang) : [];
 
   useEffect(() => {
     if (
@@ -349,9 +344,9 @@ export function MessageBubble({
       !hasAutoPlayed.current
     ) {
       hasAutoPlayed.current = true;
-      speakSegments(segments);
+      speakSegments(segmentsForTTS, 1, message.id);
     }
-  }, [isUser, autoPlay, isLatest, speakSegments, segments]);
+  }, [isUser, autoPlay, isLatest, speakSegments, segmentsForTTS, message.id]);
 
   return (
     <div
@@ -369,29 +364,36 @@ export function MessageBubble({
           <span className="whitespace-pre-wrap">{message.text}</span>
         ) : (
           <div className="prose prose-sm dark:prose-invert max-w-none [&>*:first-child]:mt-0 [&>*:last-child]:mb-0">
-            <ReactMarkdown
-              rehypePlugins={[rehypeRaw]}
-              components={{
-                tl: ({ children }: { children?: React.ReactNode }) => (
+            {segmentsForRender.map((seg, i) => {
+              if (seg.type === "tl") {
+                return (
                   <TargetLangBlock
+                    key={i}
+                    rawText={seg.text}
                     lang={lang}
                     onRequestBreakdown={onRequestBreakdown}
+                  />
+                );
+              }
+              if (seg.type === "listen") {
+                return (
+                  <ListenBlock
+                    key={i}
+                    speakSegments={speakSegments}
+                    onStop={onStop}
+                    playingId={playingId}
+                    playbackId={`${message.id}-listen-${i}`}
                   >
-                    {children}
-                  </TargetLangBlock>
-                ),
-                nl: ({ children }: { children?: React.ReactNode }) => (
-                  <>{children}</>
-                ),
-                listen: ({ children }: { children?: React.ReactNode }) => (
-                  <ListenBlock speakSegments={speakSegments}>
-                    {children}
+                    {seg.text}
                   </ListenBlock>
-                ),
-              } as Record<string, React.ComponentType<{ children?: React.ReactNode }>>}
-            >
-              {normalizedText}
-            </ReactMarkdown>
+                );
+              }
+              return (
+                <span key={i} className="whitespace-pre-wrap">
+                  {seg.text}
+                </span>
+              );
+            })}
           </div>
         )}
         {isCorrect && (
@@ -400,15 +402,14 @@ export function MessageBubble({
           </div>
         )}
         {!isUser && speakSegments && (
-          <Button
-            variant="ghost"
-            size="icon"
-            className="absolute -right-9 top-1 h-7 w-7 opacity-0 transition-opacity group-hover:opacity-100"
-            onClick={() => speakSegments(segments)}
-            title="Replay audio"
-          >
-            <Volume2 className="h-3.5 w-3.5" />
-          </Button>
+          <div className="absolute -right-9 top-1 opacity-0 transition-opacity group-hover:opacity-100">
+            <AudioReplayButton
+              onReplay={(rate) => speakSegments(segmentsForTTS, rate, message.id)}
+              onStop={onStop}
+              isPlaying={playingId === message.id}
+              className="h-7 w-7"
+            />
+          </div>
         )}
       </div>
     </div>

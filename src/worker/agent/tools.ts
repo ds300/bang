@@ -271,7 +271,8 @@ export function getTools(): ToolDefinition[] {
           },
           planned_exercises: {
             type: "string",
-            description: "JSON string of planned exercises",
+            description:
+              "JSON string: array of CONCRETE exercise items (todo list). Each item must have type (listening|translation|writing_prompt|spot_the_error) and the full exercise text in the target language (e.g. the exact sentence to translate, the <listen> sentence, or the full prompt). No abstract descriptions like 'Translation: subjunctive'.",
           },
           results: {
             type: "string",
