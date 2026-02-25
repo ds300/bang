@@ -39,9 +39,18 @@ export async function handleTranslate(
 
   const client = new Anthropic({ apiKey });
 
+  const hasMarked = context?.includes("<TRANSLATE_THIS>");
   const prompt = context
-    ? `The user selected "${sentence}" from this ${lang} text: "${context}". Translate the selected part to ${nativeLang}. Return ONLY the translation, nothing else.`
+    ? hasMarked
+      ? `The following text may be in ${lang} or mixed languages. One phrase is marked with <TRANSLATE_THIS> and </TRANSLATE_THIS>—translate only that marked phrase (the exact text between the two tags) to ${nativeLang}. The marked phrase may be a single word and may be in a different language than the surrounding text; still translate it. Do not translate the whole passage or say you don't see the tags.
+
+Return only the translation of the marked phrase. Always wrap in **double asterisks** the part of your translation that most closely maps to the marked phrase. Do this even when it's 1:1 (one word → one word). If you add context for an ambiguous selection, do not bold the context. Example: "el" → "**the**". Example: "segments" → "**segmentos**". Do not expand to a full sentence. No other formatting.
+
+${context}`
+      : `The user selected "${sentence}" from this ${lang} text: "${context}". Translate the selected part to ${nativeLang}. Return ONLY the translation, nothing else.`
     : `Translate this ${lang} text to ${nativeLang}. Return ONLY the translation, nothing else.\n\n"${sentence}"`;
+
+  console.log("[translate] prompt sent to LLM:", prompt);
 
   const response = await callWithRetry(() =>
     client.messages.create({
@@ -53,7 +62,9 @@ export async function handleTranslate(
 
   const text =
     response.content[0]?.type === "text" ? response.content[0].text : "";
-  const translation = text.trim();
-  translateCache.set(cacheKey, translation);
-  return Response.json({ translation });
+  const raw = text.trim();
+  console.log("[translate] response from LLM:", raw);
+
+  translateCache.set(cacheKey, raw);
+  return Response.json({ translation: raw });
 }

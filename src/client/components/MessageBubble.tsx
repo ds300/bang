@@ -3,7 +3,7 @@ import { cn } from "@/lib/utils";
 import { apiFetch } from "@/lib/api";
 import { AudioReplayButton } from "@/components/AudioReplayButton";
 import { Check, Eye, Loader2, ExternalLink } from "lucide-react";
-import { parseLangTags } from "@/lib/sentences";
+import { parseLangTags, parseMessageSegments } from "@/lib/sentences";
 import type { TextSegment } from "@/lib/sentences";
 import type { ChatMessage } from "@/hooks/useSession";
 import type { PlaybackRate } from "@/hooks/useTTS";
@@ -34,34 +34,7 @@ function tokenize(text: string): string[] {
   return text.split(/(\s+)/);
 }
 
-/** Parse message into segments with raw text so selection works for any structure */
-function parseMessageSegments(
-  text: string,
-  defaultTag: "tl" | "nl"
-): Array<{ type: "tl" | "nl" | "listen"; text: string }> {
-  const segments: Array<{ type: "tl" | "nl" | "listen"; text: string }> = [];
-  const regex = /<(tl|nl|listen)>([\s\S]*?)<\/\1>/g;
-  let lastIndex = 0;
-  let match;
-
-  while ((match = regex.exec(text)) !== null) {
-    const gap = text.slice(lastIndex, match.index);
-    if (gap.trim()) {
-      segments.push({ type: defaultTag, text: gap });
-    }
-    segments.push({ type: match[1] as "tl" | "nl" | "listen", text: match[2] ?? "" });
-    lastIndex = match.index + match[0].length;
-  }
-
-  const tail = text.slice(lastIndex);
-  if (tail.trim()) {
-    segments.push({ type: defaultTag, text: tail });
-  }
-
-  return segments;
-}
-
-function TargetLangBlock({
+export function TargetLangBlock({
   rawText,
   lang,
   onRequestBreakdown,
@@ -317,7 +290,7 @@ function ListenBlock({
 
 export function MessageBubble({
   message,
-  lang,
+  lang: _lang,
   onboarded,
   speakSegments,
   onStop,
@@ -325,7 +298,7 @@ export function MessageBubble({
   autoPlay,
   isLatest,
   isCorrect,
-  onRequestBreakdown,
+  onRequestBreakdown: _onRequestBreakdown,
 }: MessageBubbleProps) {
   const isUser = message.role === "user";
   const hasAutoPlayed = useRef(false);
@@ -366,13 +339,11 @@ export function MessageBubble({
           <div className="prose prose-sm dark:prose-invert max-w-none [&>*:first-child]:mt-0 [&>*:last-child]:mb-0">
             {segmentsForRender.map((seg, i) => {
               if (seg.type === "tl") {
+                // Translation disabled: render as plain text (no selection/tooltip)
                 return (
-                  <TargetLangBlock
-                    key={i}
-                    rawText={seg.text}
-                    lang={lang}
-                    onRequestBreakdown={onRequestBreakdown}
-                  />
+                  <span key={i} className="whitespace-pre-wrap">
+                    {seg.text}
+                  </span>
                 );
               }
               if (seg.type === "listen") {

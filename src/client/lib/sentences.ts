@@ -58,3 +58,32 @@ export function parseLangTags(text: string, defaultLang: LangTag): TextSegment[]
 export function stripLangTags(text: string): string {
   return text.replace(/<\/?(?:tl|nl|listen)>/g, "");
 }
+
+/**
+ * Parse message into segments with raw text for rendering (tl/nl/listen blocks).
+ */
+export function parseMessageSegments(
+  text: string,
+  defaultTag: "tl" | "nl"
+): Array<{ type: "tl" | "nl" | "listen"; text: string }> {
+  const segments: Array<{ type: "tl" | "nl" | "listen"; text: string }> = [];
+  const regex = /<(tl|nl|listen)>([\s\S]*?)<\/\1>/g;
+  let lastIndex = 0;
+  let match;
+
+  while ((match = regex.exec(text)) !== null) {
+    const gap = text.slice(lastIndex, match.index);
+    if (gap.trim()) {
+      segments.push({ type: defaultTag, text: gap });
+    }
+    segments.push({ type: match[1] as "tl" | "nl" | "listen", text: match[2] ?? "" });
+    lastIndex = match.index + match[0].length;
+  }
+
+  const tail = text.slice(lastIndex);
+  if (tail.trim()) {
+    segments.push({ type: defaultTag, text: tail });
+  }
+
+  return segments;
+}

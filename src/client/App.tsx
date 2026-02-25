@@ -10,6 +10,7 @@ import { Navbar } from "@/components/Navbar";
 import { AuthScreen } from "@/components/AuthScreen";
 import { DebugPanel } from "@/components/DebugPanel";
 import { PromptTestPage } from "@/components/PromptTestPage";
+import { TranslationTestPage } from "@/components/TranslationTestPage";
 import { apiFetch } from "@/lib/api";
 
 function MainView() {
@@ -172,6 +173,7 @@ export function App() {
   return (
     <Routes>
       <Route path="/prompt-test" element={<PromptTestPage />} />
+      <Route path="/__test__" element={<TranslationTestPage />} />
       <Route path="/session/:sessionId" element={<MainView />} />
       <Route path="/" element={<MainView />} />
     </Routes>
