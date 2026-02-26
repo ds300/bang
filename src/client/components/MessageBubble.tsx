@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState } from "react";
-import ReactMarkdown from "react-markdown";
 import { cn } from "@/lib/utils";
 import { apiFetch } from "@/lib/api";
 import { AudioReplayButton } from "@/components/AudioReplayButton";
@@ -300,7 +299,7 @@ export function MessageBubble({
   autoPlay,
   isLatest,
   isCorrect,
-  onRequestBreakdown: _onRequestBreakdown,
+  onRequestBreakdown,
 }: MessageBubbleProps) {
   const isUser = message.role === "user";
   const hasAutoPlayed = useRef(false);
@@ -345,12 +344,13 @@ export function MessageBubble({
                   <TranslatableContent
                     key={i}
                     lang={lang}
-                    onTranslate={async (text, context, signal) => {
+                    markdown={seg.text}
+                    onRequestBreakdown={onRequestBreakdown}
+                    onTranslate={async (context, signal) => {
                       const res = await apiFetch("/api/translate", {
                         method: "POST",
                         headers: { "Content-Type": "application/json" },
                         body: JSON.stringify({
-                          sentence: text,
                           lang,
                           context,
                         }),
@@ -360,9 +360,7 @@ export function MessageBubble({
                       return data.translation ?? null;
                     }}
                     className="[&>*:first-child]:mt-0 [&>*:last-child]:mb-0"
-                  >
-                    <ReactMarkdown>{seg.text}</ReactMarkdown>
-                  </TranslatableContent>
+                  />
                 );
               }
               if (seg.type === "listen") {

@@ -145,3 +145,10 @@
 .tl-word-selected:hover {
   background: oklch(0.7 0.15 240 / 25%);
 }
+
+.translation-underline {
+  text-decoration: underline;
+  text-decoration-color: #9ed8ff;
+  text-underline-offset: 2px;
+  text-decoration-thickness: 1.5px;
+}

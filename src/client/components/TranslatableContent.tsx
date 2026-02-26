@@ -14,6 +14,7 @@ import {
 import {
   getContainerTextAndSelection,
   getContainerText,
+  getRangeForIndices,
 } from "@/lib/contentRanges";
 import { Loader2, X } from "lucide-react";
 
@@ -31,9 +32,9 @@ function buildMarkedContext(
   const text = range.toString().trim();
   const context =
     containerText.slice(0, startIdx) +
-    "<TRANSLATE_THIS>" +
+    "<translate>" +
     containerText.slice(startIdx, endIdx) +
-    "</TRANSLATE_THIS>" +
+    "</translate>" +
     containerText.slice(endIdx);
   return { context, text };
 }
@@ -78,30 +79,33 @@ function getTranslationTooltipPosition(rect: DOMRect) {
 export type { WordSelectableUnderlinedRange as UnderlinedRange };
 
 export interface TranslatableContentProps {
-  children: React.ReactNode;
+  children?: React.ReactNode;
+  /** Preferred rendering path: markdown source rendered by ReactMarkdown. */
+  markdown?: string;
   /** Language code for translation (e.g. "es"). Passed to onTranslate for API calls. */
   lang: string;
   /** Called when user selects text. Return the translation or null on error. Signal is aborted when selection changes before the request completes. */
   onTranslate: (
-    text: string,
     context: string,
     signal?: AbortSignal
   ) => Promise<string | null>;
   className?: string;
   /** Optional: persist underlined ranges (e.g. per message). */
   underlinedRanges?: WordSelectableUnderlinedRange[];
-  onUnderlinedRangesChange?: (
-    ranges: WordSelectableUnderlinedRange[]
-  ) => void;
+  onUnderlinedRangesChange?: (ranges: WordSelectableUnderlinedRange[]) => void;
+  /** Optional: open the explanation drawer when tooltip body is clicked. */
+  onRequestBreakdown?: (selection: string, context: string) => void;
 }
 
 export function TranslatableContent({
   children,
-  lang,
+  markdown,
+  lang: _lang,
   onTranslate,
   className,
   underlinedRanges: underlinedRangesProp,
   onUnderlinedRangesChange,
+  onRequestBreakdown,
 }: TranslatableContentProps) {
   const [internalUnderlinedRanges, setInternalUnderlinedRanges] = useState<
     WordSelectableUnderlinedRange[]
@@ -139,7 +143,8 @@ export function TranslatableContent({
     translation: string;
     initialRect: DOMRect;
   } | null>(null);
-  const [selectionTooltipRevealed, setSelectionTooltipRevealed] = useState(false);
+  const [selectionTooltipRevealed, setSelectionTooltipRevealed] =
+    useState(false);
 
   const selectionTooltipRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
@@ -147,9 +152,9 @@ export function TranslatableContent({
   const tooltipTextRef = useRef<string | null>(null);
   const tooltipHoveredRef = useRef(false);
   const translateAbortRef = useRef<AbortController | null>(null);
-  const hoverTooltipCloseTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(
-    null
-  );
+  const hoverTooltipCloseTimeoutRef = useRef<ReturnType<
+    typeof setTimeout
+  > | null>(null);
   const selectionTooltipRevealTimeoutRef = useRef<ReturnType<
     typeof setTimeout
   > | null>(null);
@@ -184,12 +189,7 @@ export function TranslatableContent({
         }
         if (hovTip) {
           const r = hovTip.initialRect;
-          if (
-            x >= r.left &&
-            x <= r.right &&
-            y >= r.top &&
-            y <= r.bottom
-          ) {
+          if (x >= r.left && x <= r.right && y >= r.top && y <= r.bottom) {
             return;
           }
         }
@@ -207,7 +207,8 @@ export function TranslatableContent({
       if (sel) sel.removeAllRanges();
     }
     document.addEventListener("mousedown", handleMouseDown, true);
-    return () => document.removeEventListener("mousedown", handleMouseDown, true);
+    return () =>
+      document.removeEventListener("mousedown", handleMouseDown, true);
   }, [hasAnyTooltip, selectionTooltip, hoverTooltip]);
 
   useEffect(() => {
@@ -215,6 +216,20 @@ export function TranslatableContent({
     tooltipHoveredRef.current = false;
     let rafId: number;
     const loop = () => {
+      const container = contentRef.current;
+      const tooltipRange =
+        container &&
+        selectionTooltip.startIdx >= 0 &&
+        selectionTooltip.endIdx > selectionTooltip.startIdx
+          ? getRangeForIndices(
+              container,
+              selectionTooltip.startIdx,
+              selectionTooltip.endIdx
+            )
+          : null;
+      if (container && tooltipRange) {
+        rangeRef.current = tooltipRange;
+      }
       const range = rangeRef.current;
       const el = selectionTooltipRef.current;
       if (!range || !el) {
@@ -241,8 +256,21 @@ export function TranslatableContent({
         return;
       }
       const sel = window.getSelection();
-      const selectedText = sel?.rangeCount ? sel.toString().trim() : "";
-      if (selectedText !== (tooltipTextRef.current ?? "")) {
+      const hasSelectionInsideContent =
+        !!container &&
+        !!sel &&
+        sel.rangeCount > 0 &&
+        !!sel.anchorNode &&
+        container.contains(sel.anchorNode);
+      const selectedInfo =
+        hasSelectionInsideContent && container && sel && sel.rangeCount > 0
+          ? getContainerTextAndSelection(container, sel.getRangeAt(0))
+          : null;
+      if (
+        selectedInfo &&
+        (selectedInfo.startIdx !== selectionTooltip.startIdx ||
+          selectedInfo.endIdx !== selectionTooltip.endIdx)
+      ) {
         if (selectionTooltipRevealTimeoutRef.current) {
           clearTimeout(selectionTooltipRevealTimeoutRef.current);
           selectionTooltipRevealTimeoutRef.current = null;
@@ -259,6 +287,36 @@ export function TranslatableContent({
     return () => cancelAnimationFrame(rafId);
   }, [selectionTooltip]);
 
+  useEffect(() => {
+    if (!selectionTooltip) return;
+    const container = contentRef.current;
+    if (!container) return;
+    if (
+      selectionTooltip.startIdx < 0 ||
+      selectionTooltip.endIdx <= selectionTooltip.startIdx
+    ) {
+      return;
+    }
+    const liveRange = getRangeForIndices(
+      container,
+      selectionTooltip.startIdx,
+      selectionTooltip.endIdx
+    );
+    if (!liveRange) return;
+    rangeRef.current = liveRange;
+    const sel = window.getSelection();
+    if (!sel) return;
+    if (
+      sel.rangeCount === 0 ||
+      !container.contains(sel.anchorNode) ||
+      !sel.toString().trim()
+    ) {
+      sel.removeAllRanges();
+      sel.addRange(liveRange);
+      tooltipTextRef.current = liveRange.toString().trim();
+    }
+  }, [selectionTooltip?.startIdx, selectionTooltip?.endIdx, underlinedRanges]);
+
   const doTranslate = useCallback(
     (
       text: string,
@@ -273,11 +331,11 @@ export function TranslatableContent({
         const marked = buildMarkedContext(container, range);
         context = marked
           ? marked.context
-          : `${getContainerText(container)}\n\n<TRANSLATE_THIS>${text}</TRANSLATE_THIS>`;
+          : `${getContainerText(container)}\n\n<translate>${text}</translate>`;
       } else {
-        context = `<TRANSLATE_THIS>${text}</TRANSLATE_THIS>`;
+        context = `<translate>${text}</translate>`;
       }
-      return onTranslate(text, context, signal)
+      return onTranslate(context, signal)
         .then((translation) => {
           if (signal?.aborted) return;
           const result = translation ?? "(translation failed)";
@@ -408,24 +466,12 @@ export function TranslatableContent({
       }
       const controller = new AbortController();
       translateAbortRef.current = controller;
-      doTranslate(
-        text,
-        range,
-        container,
-        startIdx,
-        endIdx,
-        controller.signal
-      );
+      doTranslate(text, range, container, startIdx, endIdx, controller.signal);
     },
-    [
-      hoverTooltip,
-      underlinedRanges,
-      setUnderlinedRanges,
-      doTranslate,
-    ]
+    [hoverTooltip, underlinedRanges, setUnderlinedRanges, doTranslate]
   );
 
-  const closeTooltipForRange = useCallback(
+  const dismissTooltipForRange = useCallback(
     (startIdx: number, endIdx: number, wasSelection: boolean) => {
       isPointerOverTooltipRef.current = false;
       const clearingSelection =
@@ -450,11 +496,18 @@ export function TranslatableContent({
         const sel = document.getSelection();
         if (sel) sel.removeAllRanges();
       }
+    },
+    [selectionTooltip]
+  );
+
+  const closeTooltipForRange = useCallback(
+    (startIdx: number, endIdx: number, wasSelection: boolean) => {
+      dismissTooltipForRange(startIdx, endIdx, wasSelection);
       setUnderlinedRanges((prev) =>
         prev.filter((r) => !(r.startIdx === startIdx && r.endIdx === endIdx))
       );
     },
-    [selectionTooltip, setUnderlinedRanges]
+    [dismissTooltipForRange, setUnderlinedRanges]
   );
 
   const scheduleHoverTooltipClose = useCallback(() => {
@@ -555,6 +608,138 @@ export function TranslatableContent({
     translation: string | null;
     loading: boolean;
   }> = [];
+
+  function splitTextForUnderline(
+    text: string,
+    globalStartIdx: number,
+    ranges: WordSelectableUnderlinedRange[]
+  ): Array<
+    | { type: "text"; value: string }
+    | {
+        type: "underline";
+        value: string;
+        startIdx: number;
+        endIdx: number;
+      }
+  > {
+    if (text.length === 0 || ranges.length === 0)
+      return [{ type: "text", value: text }];
+    const textEndIdx = globalStartIdx + text.length;
+    const boundaries = new Set<number>([0, text.length]);
+    for (const range of ranges) {
+      if (range.endIdx <= globalStartIdx || range.startIdx >= textEndIdx)
+        continue;
+      boundaries.add(Math.max(0, range.startIdx - globalStartIdx));
+      boundaries.add(Math.min(text.length, range.endIdx - globalStartIdx));
+    }
+    const points = [...boundaries].sort((a, b) => a - b);
+    if (points.length <= 2) return [{ type: "text", value: text }];
+    const parts: Array<
+      | { type: "text"; value: string }
+      | {
+          type: "underline";
+          value: string;
+          startIdx: number;
+          endIdx: number;
+        }
+    > = [];
+    for (let i = 0; i < points.length - 1; i++) {
+      const localStart = points[i]!;
+      const localEnd = points[i + 1]!;
+      if (localEnd <= localStart) continue;
+      const value = text.slice(localStart, localEnd);
+      if (!value) continue;
+      const segStartIdx = globalStartIdx + localStart;
+      const segEndIdx = globalStartIdx + localEnd;
+      const containing = ranges.find(
+        (range) => range.startIdx <= segStartIdx && range.endIdx >= segEndIdx
+      );
+      if (!containing) {
+        parts.push({ type: "text", value });
+      } else {
+        parts.push({
+          type: "underline",
+          value,
+          startIdx: containing.startIdx,
+          endIdx: containing.endIdx,
+        });
+      }
+    }
+    return parts;
+  }
+
+  const rehypeUnderlineRanges = useCallback(
+    () => (tree: any) => {
+      const ranges = [...underlinedRanges]
+        .filter((range) => range.endIdx > range.startIdx)
+        .sort((a, b) => a.startIdx - b.startIdx || a.endIdx - b.endIdx);
+      if (ranges.length === 0) return;
+      let cursor = 0;
+
+      const visit = (node: any) => {
+        if (!node || !Array.isArray(node.children)) return;
+        const nextChildren: any[] = [];
+        for (const child of node.children) {
+          if (child?.type === "text") {
+            const value = String(child.value ?? "");
+            const chunks = splitTextForUnderline(value, cursor, ranges);
+            cursor += value.length;
+            for (const chunk of chunks) {
+              if (chunk.type === "text") {
+                nextChildren.push({ type: "text", value: chunk.value });
+              } else {
+                nextChildren.push({
+                  type: "element",
+                  tagName: "span",
+                  properties: {
+                    className: ["translation-underline"],
+                    "data-underline-range": "true",
+                    "data-range-start": String(chunk.startIdx),
+                    "data-range-end": String(chunk.endIdx),
+                  },
+                  children: [{ type: "text", value: chunk.value }],
+                });
+              }
+            }
+            continue;
+          }
+          if (Array.isArray(child?.children)) visit(child);
+          nextChildren.push(child);
+        }
+        node.children = nextChildren;
+      };
+
+      visit(tree);
+    },
+    [underlinedRanges]
+  );
+
+  const handleTooltipBodyClick = useCallback(
+    (entry: {
+      startIdx: number;
+      endIdx: number;
+      loading: boolean;
+      translation: string | null;
+      isSelection: boolean;
+    }) => {
+      if (!onRequestBreakdown || entry.loading) return;
+      const container = contentRef.current;
+      if (!container) return;
+      const range = getRangeForIndices(container, entry.startIdx, entry.endIdx);
+      if (!range) return;
+      const marked = buildMarkedContext(container, range);
+      const selection = range.toString().trim();
+      if (!selection) return;
+      const context =
+        marked?.context ??
+        `${getContainerText(
+          container
+        )}\n\n<TRANSLATE_THIS>${selection}</TRANSLATE_THIS>`;
+      onRequestBreakdown(selection, context);
+      dismissTooltipForRange(entry.startIdx, entry.endIdx, entry.isSelection);
+    },
+    [dismissTooltipForRange, onRequestBreakdown]
+  );
   if (selectionTooltip && selectionTooltipRevealed) {
     activeRanges.push({
       startIdx: selectionTooltip.startIdx,
@@ -592,7 +777,13 @@ export function TranslatableContent({
           onUnderlineHover={handleUnderlineHover}
           onUnderlineLeave={handleUnderlineLeave}
         >
-          {children}
+          {markdown !== undefined ? (
+            <ReactMarkdown rehypePlugins={[rehypeUnderlineRanges]}>
+              {markdown}
+            </ReactMarkdown>
+          ) : (
+            children
+          )}
         </WordSelectable>
       </div>
       {activeRanges.map((entry) => {
@@ -622,7 +813,23 @@ export function TranslatableContent({
             }}
           >
             <div className="group relative">
-              <div className="rounded-lg border bg-popover px-3 py-2 shadow-md">
+              <div
+                className={`rounded-lg border bg-popover px-3 py-2 shadow-md ${
+                  onRequestBreakdown && !entry.loading ? "cursor-pointer" : ""
+                }`}
+                onClick={() => handleTooltipBodyClick(entry)}
+                role={
+                  onRequestBreakdown && !entry.loading ? "button" : undefined
+                }
+                tabIndex={onRequestBreakdown && !entry.loading ? 0 : undefined}
+                onKeyDown={(e) => {
+                  if (!onRequestBreakdown || entry.loading) return;
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    handleTooltipBodyClick(entry);
+                  }
+                }}
+              >
                 {entry.loading ? (
                   <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
                     <Loader2 className="h-3 w-3 animate-spin" />

@@ -96,35 +96,3 @@ export function getRangeForIndices(
   return r;
 }
 
-/** Get one rect per line for range [startIdx, endIdx). Pass precomputed positions to avoid re-walking the container when updating many ranges. */
-export function getRangeRectsInContainer(
-  container: Node,
-  startIdx: number,
-  endIdx: number,
-  positions?: { node: Text; offset: number }[]
-): { left: number; top: number; width: number; height: number }[] {
-  const pos = positions ?? getContainerPositions(container);
-  if (startIdx < 0 || endIdx <= startIdx || endIdx > pos.length) return [];
-  const doc = container.ownerDocument;
-  const containerEl = container as Element;
-  if (!doc || !containerEl.getBoundingClientRect) return [];
-  const startPos = pos[startIdx]!;
-  const endPos = pos[endIdx - 1]!;
-  const r = doc.createRange();
-  r.setStart(startPos.node, startPos.offset);
-  r.setEnd(endPos.node, endPos.offset + 1);
-  const containerRect = containerEl.getBoundingClientRect();
-  const rects: { left: number; top: number; width: number; height: number }[] = [];
-  const clientRects = r.getClientRects();
-  for (let i = 0; i < clientRects.length; i++) {
-    const rect = clientRects[i]!;
-    if (rect.width === 0 && rect.height === 0) continue;
-    rects.push({
-      left: rect.left - containerRect.left,
-      top: rect.top - containerRect.top,
-      width: rect.width,
-      height: rect.height,
-    });
-  }
-  return rects;
-}

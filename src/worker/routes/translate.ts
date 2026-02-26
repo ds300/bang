@@ -4,7 +4,7 @@ const translateCache = new Map<string, string>();
 
 async function callWithRetry(
   fn: () => Promise<Anthropic.Message>,
-  retries = 3,
+  retries = 3
 ): Promise<Anthropic.Message> {
   for (let i = 0; i < retries; i++) {
     try {
@@ -21,48 +21,73 @@ async function callWithRetry(
   throw new Error("Unreachable");
 }
 
+function buildTranslationMessages(
+  nativeLang: string,
+  selectedText: string,
+  fullContext: string
+): { system: string; user: string } {
+  const system = `You are a word-for-word translator to ${nativeLang}. You receive a phrase and optional context. Replace every non-${nativeLang} word with its ${nativeLang} equivalent. Keep punctuation and structure. Do not extend the phrase. Return ONLY the translated words.`;
+
+  const user = `Example:
+<context>Ella dijo "por supuesto" sin pensarlo dos veces.</context>
+<phrase>"por supuesto" sin</phrase>
+→ "of course" without
+
+Now translate:
+<context>${fullContext}</context>
+<phrase>${selectedText}</phrase>
+→`;
+
+  return { system, user };
+}
+
 export async function handleTranslate(
   request: Request,
-  apiKey: string,
+  apiKey: string
 ): Promise<Response> {
   const body = (await request.json()) as {
-    sentence: string;
     lang: string;
     nativeLang?: string;
-    context?: string;
+    context: string;
   };
-  const { sentence, lang, nativeLang = "English", context } = body;
+  const { lang, nativeLang = "English", context } = body;
 
-  const cacheKey = `${lang}:${sentence}:${context ?? ""}`;
+  const cacheKey = `${lang}:${context}`;
   const cached = translateCache.get(cacheKey);
   if (cached) return Response.json({ translation: cached });
 
   const client = new Anthropic({ apiKey });
 
-  const hasMarked = context?.includes("<TRANSLATE_THIS>");
-  const prompt = context
-    ? hasMarked
-      ? `The following text may be in ${lang} or mixed languages. One phrase is marked with <TRANSLATE_THIS> and </TRANSLATE_THIS>—translate only that marked phrase (the exact text between the two tags) to ${nativeLang}. Translate it in the context in which it appears: use the surrounding sentence to choose the correct sense and return that translation (e.g. "Por" in "Por la tarde" → "**In the**" or "**By**" as it reads in that phrase, not "By or For"). The marked phrase may be a single word and may be in a different language than the surrounding text; still translate it. Do not translate the whole passage or say you don't see the tags.
+  const tagMatch = context.match(/<translate>([\s\S]*?)<\/translate>/);
+  const selectedText = tagMatch?.[1]?.trim() ?? "";
+  const fullContext = context.replace(/<\/?translate>/g, "");
 
-Return only the translation—no meta commentary, no parenthetical notes, no "most likely" or explanations. Always wrap in **double asterisks** ONLY the part that maps to the marked phrase. If you add context for an ambiguous selection, do not bold the context. Example: "el" → "**the**". Do not expand to a full sentence. No other formatting.
-
-${context}`
-      : `The user selected "${sentence}" from this ${lang} text: "${context}". Translate the selected part to ${nativeLang}. Return ONLY the translation, nothing else.`
-    : `Translate this ${lang} text to ${nativeLang}. Return ONLY the translation, nothing else.\n\n"${sentence}"`;
-
-  console.log("[translate] prompt sent to LLM:", prompt);
-
+  let raw = "";
+  const { system, user } = buildTranslationMessages(nativeLang, selectedText, fullContext);
+  console.log(
+    "[translate] prompt sent to LLM (marked, pass 1):",
+    system,
+    "\n",
+    user
+  );
+  // Cap output tokens: rough estimate ~1 token per 4 chars, with 3x headroom, minimum 30
+  const estimatedTokens = Math.max(30, Math.ceil((selectedText.length / 4) * 3));
   const response = await callWithRetry(() =>
     client.messages.create({
       model: "claude-haiku-4-5",
-      max_tokens: 200,
-      messages: [{ role: "user", content: prompt }],
-    }),
+      max_tokens: estimatedTokens,
+      system,
+      messages: [{ role: "user", content: user }],
+    })
   );
-
   const text =
     response.content[0]?.type === "text" ? response.content[0].text : "";
-  const raw = text.trim();
+  raw = text.trim();
+  // Strip wrapping quotes the model sometimes echoes back
+  if ((raw.startsWith('"') && raw.endsWith('"')) || (raw.startsWith("'") && raw.endsWith("'"))) {
+    raw = raw.slice(1, -1);
+  }
+
   console.log("[translate] response from LLM:", raw);
 
   translateCache.set(cacheKey, raw);

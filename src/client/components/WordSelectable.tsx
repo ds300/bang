@@ -1,11 +1,6 @@
-import { useRef, useCallback, useState, useEffect } from "react";
+import { useCallback, useRef } from "react";
 import { cn } from "@/lib/utils";
-import {
-  getContainerPositions,
-  getIndicesForRange,
-  getRangeForIndices,
-  getRangeRectsInContainer,
-} from "@/lib/contentRanges";
+import { getIndicesForRange, getRangeForIndices } from "@/lib/contentRanges";
 
 /** Get a Range at (x, y). Uses caretRangeFromPoint with caretPositionFromPoint fallback for Firefox. */
 function rangeFromPoint(document: Document, x: number, y: number): Range | null {
@@ -110,31 +105,6 @@ function hasWordChar(s: string): boolean {
   return /\p{L}/u.test(s);
 }
 
-/** Get character index at (clientX, clientY) in container, or null if not in a text node. */
-function getIndexAtPoint(
-  container: Node,
-  clientX: number,
-  clientY: number
-): number | null {
-  const doc = container.ownerDocument;
-  if (!doc) return null;
-  const range = rangeFromPoint(doc, clientX, clientY);
-  if (!range) return null;
-  const positions = getContainerPositions(container);
-  if (positions.length === 0) return null;
-  const node = range.startContainer;
-  const offset = range.startOffset;
-  for (let i = 0; i < positions.length; i++) {
-    const p = positions[i]!;
-    if (p.node === node && p.offset === offset) return i;
-  }
-  for (let i = 0; i < positions.length; i++) {
-    if (positions[i]!.node === node && offset <= positions[i]!.offset) return i;
-  }
-  if (positions[positions.length - 1]!.node === node) return positions.length - 1;
-  return null;
-}
-
 export interface UnderlinedRange {
   startIdx: number;
   endIdx: number;
@@ -147,7 +117,7 @@ interface WordSelectableProps {
   className?: string;
   /** Called on mouseup when the selection is non-empty and contains at least one word. Receives the Range so the parent can track position (e.g. on scroll). */
   onSelectionForTranslation?: (text: string, rect: DOMRect, range: Range) => void;
-  /** Ranges (character indices in this block's text) to underline. Only computed when this component is in the viewport. */
+  /** Ranges (character indices in this block's text) to underline. */
   underlinedRanges?: UnderlinedRange[];
   /** Called when the pointer enters an underlined range that has a translation. Receives range so parent can avoid duplicating the selection tooltip. */
   onUnderlineHover?: (
@@ -175,10 +145,9 @@ export function WordSelectable({
   const anchorRangeRef = useRef<Range | null>(null);
   const isDraggingRef = useRef(false);
   const hoveredRangeRef = useRef<UnderlinedRange | null>(null);
-  const [underlineRects, setUnderlineRects] = useState<
-    { left: number; top: number; width: number; height: number }[]
-  >([]);
-  const isInViewRef = useRef(false);
+  const orderedRanges = [...underlinedRanges].sort(
+    (a, b) => a.startIdx - b.startIdx || a.endIdx - b.endIdx
+  );
 
   const handleMouseDown = useCallback(
     (e: React.MouseEvent) => {
@@ -323,7 +292,7 @@ export function WordSelectable({
       doc.addEventListener("mouseup", handleMouseUp, true);
       doc.addEventListener("dragstart", handleDragStart, true);
     },
-    [underlinedRanges]
+    [onSelectionForTranslation, underlinedRanges]
   );
 
   const handleDragStart = useCallback((e: React.DragEvent) => {
@@ -331,145 +300,94 @@ export function WordSelectable({
     e.stopPropagation();
   }, []);
 
-  const handleMouseMove = useCallback(
+  const handleMouseOver = useCallback(
     (e: React.MouseEvent) => {
-      if (!onUnderlineHover || !onUnderlineLeave || underlinedRanges.length === 0) return;
+      if (!onUnderlineHover || !onUnderlineLeave || orderedRanges.length === 0) return;
       if (isDraggingRef.current) return;
       const container = containerRef.current;
       if (!container) return;
-      const index = getIndexAtPoint(container, e.clientX, e.clientY);
-      if (index === null) {
-        if (hoveredRangeRef.current) {
-          const prev = hoveredRangeRef.current;
-          hoveredRangeRef.current = null;
-          onUnderlineLeave(prev);
-        }
-        return;
-      }
-      const rangeWithTranslation = underlinedRanges.find(
-        (r) => r.translation && index >= r.startIdx && index < r.endIdx
+
+      const rangeEl = (e.target as HTMLElement | null)?.closest?.(
+        "[data-underline-range='true']"
+      ) as HTMLElement | null;
+      if (!rangeEl || !container.contains(rangeEl)) return;
+
+      const startIdx = Number(rangeEl.dataset.rangeStart);
+      const endIdx = Number(rangeEl.dataset.rangeEnd);
+      if (!Number.isFinite(startIdx) || !Number.isFinite(endIdx)) return;
+
+      const rangeWithTranslation = orderedRanges.find(
+        (range) =>
+          range.translation &&
+          range.startIdx === startIdx &&
+          range.endIdx === endIdx
       );
-      if (!rangeWithTranslation) {
-        if (hoveredRangeRef.current) {
-          const prev = hoveredRangeRef.current;
-          hoveredRangeRef.current = null;
-          onUnderlineLeave(prev);
-        }
-        return;
-      }
+      if (!rangeWithTranslation) return;
+
       if (
-        hoveredRangeRef.current === rangeWithTranslation &&
-        hoveredRangeRef.current.startIdx === rangeWithTranslation.startIdx
+        hoveredRangeRef.current &&
+        hoveredRangeRef.current.startIdx === rangeWithTranslation.startIdx &&
+        hoveredRangeRef.current.endIdx === rangeWithTranslation.endIdx
       ) {
         return;
       }
+
+      if (hoveredRangeRef.current) {
+        onUnderlineLeave(hoveredRangeRef.current);
+      }
       hoveredRangeRef.current = rangeWithTranslation;
-      const positions = getContainerPositions(container);
-      const doc = container.ownerDocument;
-      if (!doc) return;
-      const startPos = positions[rangeWithTranslation.startIdx]!;
-      const endPos = positions[rangeWithTranslation.endIdx - 1]!;
-      const r = doc.createRange();
-      r.setStart(startPos.node, startPos.offset);
-      r.setEnd(endPos.node, endPos.offset + 1);
-      const rect = r.getBoundingClientRect();
-      onUnderlineHover(
-        rangeWithTranslation.translation!,
-        rect,
-        rangeWithTranslation
-      );
+
+      const rect =
+        getRangeForIndices(container, startIdx, endIdx)?.getBoundingClientRect() ??
+        rangeEl.getBoundingClientRect();
+      onUnderlineHover(rangeWithTranslation.translation!, rect, rangeWithTranslation);
     },
-    [underlinedRanges, onUnderlineHover, onUnderlineLeave]
+    [orderedRanges, onUnderlineHover, onUnderlineLeave]
   );
 
-  const handleMouseLeave = useCallback(() => {
-    if (hoveredRangeRef.current && onUnderlineLeave) {
-      const prev = hoveredRangeRef.current;
-      hoveredRangeRef.current = null;
-      onUnderlineLeave(prev);
-    }
-  }, [onUnderlineLeave]);
+  const handleMouseOut = useCallback(
+    (e: React.MouseEvent) => {
+      if (!onUnderlineLeave) return;
+      const fromEl = (e.target as HTMLElement | null)?.closest?.(
+        "[data-underline-range='true']"
+      ) as HTMLElement | null;
+      if (!fromEl) return;
+      const fromStart = Number(fromEl.dataset.rangeStart);
+      const fromEnd = Number(fromEl.dataset.rangeEnd);
+      if (!Number.isFinite(fromStart) || !Number.isFinite(fromEnd)) return;
 
-  useEffect(() => {
-    const container = containerRef.current;
-    if (!container || underlinedRanges.length === 0) {
-      setUnderlineRects([]);
-      return;
-    }
-    const io = new IntersectionObserver(
-      (entries) => {
-        const entry = entries[0];
-        if (!entry) return;
-        isInViewRef.current = entry.isIntersecting;
-        if (!entry.isIntersecting) {
-          setUnderlineRects([]);
-          return;
-        }
-        scheduleUpdate();
-      },
-      { rootMargin: "100px", threshold: 0 }
-    );
-    io.observe(container);
-
-    let rafScheduled = false;
-    const updateRects = () => {
-      if (!containerRef.current || !isInViewRef.current) return;
-      const positions = getContainerPositions(containerRef.current);
-      const rects = underlinedRanges.flatMap((r) =>
-        getRangeRectsInContainer(
-          containerRef.current!,
-          r.startIdx,
-          r.endIdx,
-          positions
-        )
-      );
-      setUnderlineRects(rects);
-    };
-    const scheduleUpdate = () => {
-      if (rafScheduled) return;
-      rafScheduled = true;
-      requestAnimationFrame(() => {
-        rafScheduled = false;
-        if (isInViewRef.current) updateRects();
-      });
-    };
-    const win = container.ownerDocument?.defaultView;
-    if (win) {
-      win.addEventListener("scroll", scheduleUpdate, true);
-      win.addEventListener("resize", scheduleUpdate);
-    }
-    return () => {
-      io.disconnect();
-      if (win) {
-        win.removeEventListener("scroll", scheduleUpdate, true);
-        win.removeEventListener("resize", scheduleUpdate);
+      const toEl = (e.relatedTarget as HTMLElement | null)?.closest?.(
+        "[data-underline-range='true']"
+      ) as HTMLElement | null;
+      const toStart = Number(toEl?.dataset.rangeStart);
+      const toEnd = Number(toEl?.dataset.rangeEnd);
+      if (Number.isFinite(toStart) && Number.isFinite(toEnd)) {
+        if (toStart === fromStart && toEnd === fromEnd) return;
       }
-    };
-  }, [underlinedRanges]);
+
+      if (
+        hoveredRangeRef.current &&
+        hoveredRangeRef.current.startIdx === fromStart &&
+        hoveredRangeRef.current.endIdx === fromEnd
+      ) {
+        const prev = hoveredRangeRef.current;
+        hoveredRangeRef.current = null;
+        onUnderlineLeave(prev);
+      }
+    },
+    [onUnderlineLeave]
+  );
 
   return (
     <div
       ref={containerRef}
       className={cn("relative cursor-text select-text", className)}
       onMouseDown={handleMouseDown}
-      onMouseMove={handleMouseMove}
-      onMouseLeave={handleMouseLeave}
+      onMouseOver={handleMouseOver}
+      onMouseOut={handleMouseOut}
       onDragStart={handleDragStart}
     >
-      {underlineRects.map((rect, i) => (
-        <div
-          key={i}
-          className="pointer-events-none absolute z-0 border-b-2 border-[#9ed8ff]"
-          style={{
-            left: rect.left,
-            top: rect.top + rect.height - 2,
-            width: rect.width,
-            height: 2,
-          }}
-          aria-hidden
-        />
-      ))}
-      <div className="relative z-[1]">{children}</div>
+      {children}
     </div>
   );
 }

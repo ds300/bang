@@ -4,7 +4,6 @@
  */
 
 import { Link } from "react-router-dom";
-import ReactMarkdown from "react-markdown";
 import { parseMessageSegments } from "@/lib/sentences";
 import { apiFetch } from "@/lib/api";
 import { TranslatableContent } from "@/components/TranslatableContent";
@@ -28,14 +27,13 @@ export function TranslationTestPage() {
   const segments = parseMessageSegments(SAMPLE_CONTENT, "tl");
 
   const handleTranslate = async (
-    text: string,
     context: string,
     signal?: AbortSignal
   ) => {
     const res = await apiFetch("/api/translate", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ sentence: text, lang: LANG, context }),
+      body: JSON.stringify({ lang: LANG, context }),
       signal,
     });
     const data = await res.json();
@@ -60,13 +58,10 @@ export function TranslationTestPage() {
           </p>
           <TranslatableContent
             lang={LANG}
+            markdown={segments.map((seg) => seg.text).join("\n\n")}
             onTranslate={handleTranslate}
             className="prose prose-sm dark:prose-invert max-w-none [&>*:first-child]:mt-0 [&>*:last-child]:mb-0"
-          >
-            {segments.map((seg, i) => (
-              <ReactMarkdown key={i}>{seg.text}</ReactMarkdown>
-            ))}
-          </TranslatableContent>
+          />
         </div>
       </div>
     </div>
