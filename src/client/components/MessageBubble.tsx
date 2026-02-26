@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from "react";
+import ReactMarkdown from "react-markdown";
 import { cn } from "@/lib/utils";
 import { apiFetch } from "@/lib/api";
 import { AudioReplayButton } from "@/components/AudioReplayButton";
+import { TranslatableContent } from "@/components/TranslatableContent";
 import { Check, Eye, Loader2, ExternalLink } from "lucide-react";
 import { parseLangTags, parseMessageSegments } from "@/lib/sentences";
 import type { TextSegment } from "@/lib/sentences";
@@ -290,7 +292,7 @@ function ListenBlock({
 
 export function MessageBubble({
   message,
-  lang: _lang,
+  lang,
   onboarded,
   speakSegments,
   onStop,
@@ -339,11 +341,28 @@ export function MessageBubble({
           <div className="prose prose-sm dark:prose-invert max-w-none [&>*:first-child]:mt-0 [&>*:last-child]:mb-0">
             {segmentsForRender.map((seg, i) => {
               if (seg.type === "tl") {
-                // Translation disabled: render as plain text (no selection/tooltip)
                 return (
-                  <span key={i} className="whitespace-pre-wrap">
-                    {seg.text}
-                  </span>
+                  <TranslatableContent
+                    key={i}
+                    lang={lang}
+                    onTranslate={async (text, context, signal) => {
+                      const res = await apiFetch("/api/translate", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({
+                          sentence: text,
+                          lang,
+                          context,
+                        }),
+                        signal,
+                      });
+                      const data = await res.json();
+                      return data.translation ?? null;
+                    }}
+                    className="[&>*:first-child]:mt-0 [&>*:last-child]:mb-0"
+                  >
+                    <ReactMarkdown>{seg.text}</ReactMarkdown>
+                  </TranslatableContent>
                 );
               }
               if (seg.type === "listen") {
