@@ -42,9 +42,9 @@ export async function handleTranslate(
   const hasMarked = context?.includes("<TRANSLATE_THIS>");
   const prompt = context
     ? hasMarked
-      ? `The following text may be in ${lang} or mixed languages. One phrase is marked with <TRANSLATE_THIS> and </TRANSLATE_THIS>—translate only that marked phrase (the exact text between the two tags) to ${nativeLang}. The marked phrase may be a single word and may be in a different language than the surrounding text; still translate it. Do not translate the whole passage or say you don't see the tags.
+      ? `The following text may be in ${lang} or mixed languages. One phrase is marked with <TRANSLATE_THIS> and </TRANSLATE_THIS>—translate only that marked phrase (the exact text between the two tags) to ${nativeLang}. Translate it in the context in which it appears: use the surrounding sentence to choose the correct sense and return that translation (e.g. "Por" in "Por la tarde" → "**In the**" or "**By**" as it reads in that phrase, not "By or For"). The marked phrase may be a single word and may be in a different language than the surrounding text; still translate it. Do not translate the whole passage or say you don't see the tags.
 
-Return only the translation of the marked phrase. Always wrap in **double asterisks** the part of your translation that most closely maps to the marked phrase. Do this even when it's 1:1 (one word → one word). If you add context for an ambiguous selection, do not bold the context. Example: "el" → "**the**". Example: "segments" → "**segmentos**". Do not expand to a full sentence. No other formatting.
+Return only the translation—no meta commentary, no parenthetical notes, no "most likely" or explanations. Always wrap in **double asterisks** ONLY the part that maps to the marked phrase. If you add context for an ambiguous selection, do not bold the context. Example: "el" → "**the**". Do not expand to a full sentence. No other formatting.
 
 ${context}`
       : `The user selected "${sentence}" from this ${lang} text: "${context}". Translate the selected part to ${nativeLang}. Return ONLY the translation, nothing else.`
