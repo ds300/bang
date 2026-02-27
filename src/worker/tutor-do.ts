@@ -45,9 +45,6 @@ export class TutorDO extends DurableObject<Env> {
 
     // Handle HTTP requests to the DO
     const url = new URL(request.url);
-    if (url.pathname === "/learn-queue" && request.method === "POST") {
-      return this.handleLearnQueue(request);
-    }
     if (url.pathname === "/debug") {
       return this.handleDebug(request);
     }
@@ -323,32 +320,6 @@ export class TutorDO extends DurableObject<Env> {
       status,
     );
     this.wsSend(ws, { type: "session_ended" });
-  }
-
-  private async handleLearnQueue(request: Request): Promise<Response> {
-    try {
-      const body = (await request.json()) as {
-        lang: string;
-        concept: string;
-        type: string;
-        position: string;
-      };
-      const now = new Date().toISOString();
-      const priority = body.position === "next" ? "next" : "later";
-
-      this.sql.exec(
-        "INSERT INTO topics (lang, description, priority, added_date, source, updated_at) VALUES (?, ?, ?, ?, 'breakdown', ?)",
-        body.lang,
-        `${body.concept} (${body.type})`,
-        priority,
-        now,
-        now,
-      );
-
-      return Response.json({ success: true });
-    } catch {
-      return Response.json({ error: "Failed" }, { status: 500 });
-    }
   }
 
   private handleDebug(request: Request): Response {

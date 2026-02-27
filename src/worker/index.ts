@@ -115,19 +115,6 @@ export default {
       );
     }
 
-    // Learn queue -> DO
-    if (url.pathname === "/api/learn-queue" && request.method === "POST") {
-      return corsResponse(
-        await stub.fetch(
-          new Request("https://do/learn-queue", {
-            method: "POST",
-            headers: request.headers,
-            body: request.body,
-          }),
-        ),
-      );
-    }
-
     return corsResponse(
       Response.json({ error: "Not found" }, { status: 404 }),
     );
