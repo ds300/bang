@@ -50,7 +50,7 @@ export function getTools(): ToolDefinition[] {
     {
       name: "add_concepts",
       description:
-        "Bulk-add concepts the student is learning or already knows. Use during onboarding or when decomposing a topic into concrete concepts.",
+        "Bulk-add concepts the student is learning or already knows. Use during onboarding or when a lesson introduces new concepts from the upcoming queue.",
       input_schema: {
         type: "object" as const,
         properties: {
@@ -70,13 +70,19 @@ export function getTools(): ToolDefinition[] {
                 },
                 state: {
                   type: "string",
-                  enum: ["current", "review", "learned"],
-                  description: "Learning state",
+                  enum: ["introducing", "reinforcing"],
+                  description:
+                    "Learning state: introducing (new, fragile) or reinforcing (embedded, foundation)",
                 },
                 notes: {
                   type: "string",
                   description:
                     "Optional notes about difficulties or context",
+                },
+                source_upcoming_id: {
+                  type: "number",
+                  description:
+                    "ID from concepts_upcoming that this concept originated from (optional)",
                 },
               },
               required: ["name", "state"],
@@ -103,14 +109,14 @@ export function getTools(): ToolDefinition[] {
     {
       name: "move_concept",
       description:
-        "Transition a concept between states (current -> review -> learned, or back).",
+        "Transition a concept between states: introducing (actively being taught) or reinforcing (embedded, SRS-scheduled review).",
       input_schema: {
         type: "object" as const,
         properties: {
           concept_id: { type: "number", description: "Concept ID" },
           new_state: {
             type: "string",
-            enum: ["current", "review", "learned"],
+            enum: ["introducing", "reinforcing"],
             description: "New state for the concept",
           },
         },
@@ -149,7 +155,7 @@ export function getTools(): ToolDefinition[] {
     {
       name: "get_learned_concepts",
       description:
-        "Query the full list of learned concepts (potentially large, so not baked into prompt).",
+        "Query the full list of reinforcing concepts (potentially large, so not baked into prompt).",
       input_schema: {
         type: "object" as const,
         properties: {
@@ -182,16 +188,25 @@ export function getTools(): ToolDefinition[] {
       },
     },
     {
-      name: "add_topic",
+      name: "add_upcoming_concept",
       description:
-        "Add an idea for future learning. Topics are decomposed into concepts when the agent picks them up.",
+        "Add a concept to the upcoming learning queue. Use when the student highlights a word/phrase, explicitly asks to learn something, or when you identify a gap in their knowledge.",
       input_schema: {
         type: "object" as const,
         properties: {
           lang: { type: "string", description: "ISO 639-1 language code" },
+          name: {
+            type: "string",
+            description: "Name of the concept to learn",
+          },
           description: {
             type: "string",
-            description: "What the student wants to learn",
+            description: "Optional description or context",
+          },
+          type: {
+            type: "string",
+            enum: ["vocabulary", "grammar", "idiom", "usage", "other"],
+            description: "Category of the concept",
           },
           priority: {
             type: "string",
@@ -201,33 +216,61 @@ export function getTools(): ToolDefinition[] {
           },
           source: {
             type: "string",
+            enum: ["highlight", "user_request", "ai_suggestion", "curriculum"],
+            description: "Where this concept came from",
+          },
+          source_detail: {
+            type: "string",
             description:
-              "Where this topic came from (e.g. 'user_request', 'agent_suggestion', 'breakdown')",
+              "Extra context, e.g. the highlighted phrase or the user's exact request",
           },
         },
-        required: ["lang", "description"],
+        required: ["lang", "name", "type", "source"],
       },
     },
     {
-      name: "resolve_topic",
+      name: "remove_upcoming_concept",
       description:
-        "Mark a topic as resolved/decomposed (e.g. after breaking it down into concepts and planning sessions).",
+        "Remove a concept from the upcoming learning queue (e.g. if it's no longer relevant or was added by mistake).",
       input_schema: {
         type: "object" as const,
         properties: {
-          topic_id: { type: "number", description: "Topic ID to resolve" },
+          concept_id: {
+            type: "number",
+            description: "ID of the upcoming concept to remove",
+          },
         },
-        required: ["topic_id"],
+        required: ["concept_id"],
       },
     },
     {
-      name: "plan_sessions",
+      name: "prioritize_upcoming_concept",
       description:
-        "Create one or more planned sessions to sequence learning for a topic or set of concepts.",
+        "Change the priority of a concept in the upcoming learning queue.",
       input_schema: {
         type: "object" as const,
         properties: {
-          sessions: {
+          concept_id: {
+            type: "number",
+            description: "ID of the upcoming concept",
+          },
+          priority: {
+            type: "string",
+            enum: ["next", "soon", "later"],
+            description: "New priority level",
+          },
+        },
+        required: ["concept_id", "priority"],
+      },
+    },
+    {
+      name: "plan_lessons",
+      description:
+        "Create one or more planned lessons to sequence learning. Lessons can introduce new concepts from the upcoming queue and/or review existing concepts.",
+      input_schema: {
+        type: "object" as const,
+        properties: {
+          lessons: {
             type: "array",
             items: {
               type: "object",
@@ -237,25 +280,58 @@ export function getTools(): ToolDefinition[] {
                   type: "string",
                   enum: ["practice", "conversation", "learning"],
                 },
+                title: {
+                  type: "string",
+                  description: "Short title for the lesson",
+                },
                 description: {
                   type: "string",
-                  description: "What this session will cover",
+                  description: "What this lesson will cover",
                 },
-                topic_ids: {
-                  type: "string",
-                  description: "Comma-separated topic IDs this session covers",
-                },
-                concept_ids: {
+                upcoming_concept_ids: {
                   type: "string",
                   description:
-                    "Comma-separated concept IDs to focus on",
+                    "Comma-separated concepts_upcoming IDs to introduce in this lesson",
+                },
+                review_concept_ids: {
+                  type: "string",
+                  description:
+                    "Comma-separated concept IDs to review in this lesson",
                 },
               },
-              required: ["lang", "type", "description"],
+              required: ["lang", "type", "title", "description"],
             },
           },
         },
-        required: ["sessions"],
+        required: ["lessons"],
+      },
+    },
+    {
+      name: "record_vocab",
+      description:
+        "Record word encounters for vocab tracking. Call after each message exchange to log which words the student saw, produced, or heard.",
+      input_schema: {
+        type: "object" as const,
+        properties: {
+          lang: { type: "string", description: "ISO 639-1 language code" },
+          seen: {
+            type: "array",
+            items: { type: "string" },
+            description: "Words the student saw (read) in this exchange",
+          },
+          produced: {
+            type: "array",
+            items: { type: "string" },
+            description: "Words the student produced (wrote/said)",
+          },
+          heard: {
+            type: "array",
+            items: { type: "string" },
+            description:
+              "Words the student heard in a listening exercise",
+          },
+        },
+        required: ["lang"],
       },
     },
     {
@@ -308,9 +384,11 @@ export function executeTool(
     record_exercise_result: execRecordExerciseResult,
     get_learned_concepts: execGetLearnedConcepts,
     search_concepts: execSearchConcepts,
-    add_topic: execAddTopic,
-    resolve_topic: execResolveTopic,
-    plan_sessions: execPlanSessions,
+    add_upcoming_concept: execAddUpcomingConcept,
+    remove_upcoming_concept: execRemoveUpcomingConcept,
+    prioritize_upcoming_concept: execPrioritizeUpcomingConcept,
+    plan_lessons: execPlanLessons,
+    record_vocab: execRecordVocab,
     update_session: execUpdateSession,
   };
 
@@ -400,14 +478,15 @@ function execAddConcepts(
     tags?: string;
     state: string;
     notes?: string;
+    source_upcoming_id?: number;
   }>;
 
   const added: Array<{ id: number; name: string }> = [];
   for (const c of concepts) {
     const cursor = ctx.sql.exec(
-      `INSERT INTO concepts (lang, name, tags, state, added_date, notes, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING id`,
-      lang, c.name, c.tags ?? "", c.state, now, c.notes ?? null, now,
+      `INSERT INTO concepts (lang, name, tags, state, added_date, notes, source_upcoming_id, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`,
+      lang, c.name, c.tags ?? "", c.state, now, c.notes ?? null, c.source_upcoming_id ?? null, now,
     );
     const row = [...cursor][0] as { id: number } | undefined;
     if (row) added.push({ id: row.id, name: c.name });
@@ -476,10 +555,9 @@ function execMoveConcept(
   }
   const oldState = (existing[0] as { state: string }).state;
 
-  const learnedDate = newState === "learned" ? now : null;
   ctx.sql.exec(
-    "UPDATE concepts SET state = ?, learned_date = COALESCE(?, learned_date), updated_at = ? WHERE id = ?",
-    newState, learnedDate, now, id,
+    "UPDATE concepts SET state = ?, updated_at = ? WHERE id = ?",
+    newState, now, id,
   );
 
   appendEvent(ctx.sql, {
@@ -568,12 +646,12 @@ function execGetLearnedConcepts(
   const offset = (input.offset as number) ?? 0;
 
   const rows = [...ctx.sql.exec(
-    "SELECT id, name, tags, learned_date, sm2_next_review, last_production_test, last_recognition_test FROM concepts WHERE lang = ? AND state = 'learned' ORDER BY learned_date DESC LIMIT ? OFFSET ?",
+    "SELECT id, name, tags, learned_date, sm2_next_review, last_production_test, last_recognition_test FROM concepts WHERE lang = ? AND state = 'reinforcing' ORDER BY learned_date DESC LIMIT ? OFFSET ?",
     lang, limit, offset,
   )];
 
   const total = [...ctx.sql.exec(
-    "SELECT COUNT(*) as cnt FROM concepts WHERE lang = ? AND state = 'learned'",
+    "SELECT COUNT(*) as cnt FROM concepts WHERE lang = ? AND state = 'reinforcing'",
     lang,
   )][0] as { cnt: number } | undefined;
 
@@ -596,75 +674,109 @@ function execSearchConcepts(
   return JSON.stringify({ results: rows });
 }
 
-function execAddTopic(
+function execAddUpcomingConcept(
   input: Record<string, unknown>,
   ctx: ToolExecutionContext,
 ): string {
   const now = new Date().toISOString();
   const lang = input.lang as string;
-  const description = input.description as string;
+  const name = input.name as string;
+  const description = (input.description as string) ?? null;
+  const type = input.type as string;
   const priority = (input.priority as string) ?? "later";
-  const source = (input.source as string) ?? "agent";
+  const source = input.source as string;
+  const sourceDetail = (input.source_detail as string) ?? null;
 
   const cursor = ctx.sql.exec(
-    "INSERT INTO topics (lang, description, priority, added_date, source, updated_at) VALUES (?, ?, ?, ?, ?, ?) RETURNING id",
-    lang, description, priority, now, source, now,
+    "INSERT INTO concepts_upcoming (lang, name, description, type, priority, source, source_session_id, source_detail, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id",
+    lang, name, description, type, priority, source, ctx.sessionId, sourceDetail, now, now,
   );
   const row = [...cursor][0] as { id: number } | undefined;
 
   appendEvent(ctx.sql, {
-    type: "topic_added",
-    data: { id: row?.id, lang, description, priority, source },
+    type: "upcoming_concept_added",
+    data: { id: row?.id, lang, name, type, priority, source, source_detail: sourceDetail },
     lang,
+    sessionId: ctx.sessionId ?? undefined,
   });
 
-  return JSON.stringify({ success: true, topic_id: row?.id });
+  return JSON.stringify({ success: true, concept_id: row?.id });
 }
 
-function execResolveTopic(
+function execRemoveUpcomingConcept(
   input: Record<string, unknown>,
   ctx: ToolExecutionContext,
 ): string {
-  const now = new Date().toISOString();
-  const topicId = input.topic_id as number;
+  const id = input.concept_id as number;
 
-  ctx.sql.exec(
-    "UPDATE topics SET resolved = 1, updated_at = ? WHERE id = ?",
-    now, topicId,
-  );
+  const existing = [...ctx.sql.exec("SELECT name FROM concepts_upcoming WHERE id = ?", id)];
+  if (existing.length === 0) {
+    return JSON.stringify({ error: "Upcoming concept not found" });
+  }
+
+  ctx.sql.exec("DELETE FROM concepts_upcoming WHERE id = ?", id);
 
   appendEvent(ctx.sql, {
-    type: "topic_resolved",
-    data: { topic_id: topicId },
+    type: "upcoming_concept_removed",
+    data: { concept_id: id },
+    sessionId: ctx.sessionId ?? undefined,
   });
 
   return JSON.stringify({ success: true });
 }
 
-function execPlanSessions(
+function execPrioritizeUpcomingConcept(
   input: Record<string, unknown>,
   ctx: ToolExecutionContext,
 ): string {
   const now = new Date().toISOString();
-  const sessions = input.sessions as Array<{
+  const id = input.concept_id as number;
+  const priority = input.priority as string;
+
+  const existing = [...ctx.sql.exec("SELECT priority FROM concepts_upcoming WHERE id = ?", id)];
+  if (existing.length === 0) {
+    return JSON.stringify({ error: "Upcoming concept not found" });
+  }
+
+  ctx.sql.exec(
+    "UPDATE concepts_upcoming SET priority = ?, updated_at = ? WHERE id = ?",
+    priority, now, id,
+  );
+
+  appendEvent(ctx.sql, {
+    type: "upcoming_concept_prioritized",
+    data: { concept_id: id, priority },
+    sessionId: ctx.sessionId ?? undefined,
+  });
+
+  return JSON.stringify({ success: true });
+}
+
+function execPlanLessons(
+  input: Record<string, unknown>,
+  ctx: ToolExecutionContext,
+): string {
+  const now = new Date().toISOString();
+  const lessons = input.lessons as Array<{
     lang: string;
     type: string;
+    title: string;
     description: string;
-    topic_ids?: string;
-    concept_ids?: string;
+    upcoming_concept_ids?: string;
+    review_concept_ids?: string;
   }>;
 
   const maxSeq = [...ctx.sql.exec(
-    "SELECT COALESCE(MAX(seq), 0) as max_seq FROM session_plans WHERE status IN ('planned', 'active')",
+    "SELECT COALESCE(MAX(seq), 0) as max_seq FROM lessons_upcoming WHERE status IN ('planned', 'active')",
   )][0] as { max_seq: number } | undefined;
 
   let seq = (maxSeq?.max_seq ?? 0) + 1;
   const planned: Array<{ id: number; seq: number }> = [];
 
-  for (const s of sessions) {
+  for (const l of lessons) {
     const cursor = ctx.sql.exec(
-      "INSERT INTO session_plans (lang, type, description, topic_ids, concept_ids, seq, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?) RETURNING id",
-      s.lang, s.type, s.description, s.topic_ids ?? null, s.concept_ids ?? null, seq, now, now,
+      "INSERT INTO lessons_upcoming (lang, type, title, description, upcoming_concept_ids, review_concept_ids, seq, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id",
+      l.lang, l.type, l.title, l.description, l.upcoming_concept_ids ?? null, l.review_concept_ids ?? null, seq, now, now,
     );
     const row = [...cursor][0] as { id: number } | undefined;
     if (row) planned.push({ id: row.id, seq });
@@ -672,11 +784,50 @@ function execPlanSessions(
   }
 
   appendEvent(ctx.sql, {
-    type: "sessions_planned",
+    type: "lessons_planned",
     data: { plans: planned },
   });
 
   return JSON.stringify({ success: true, planned });
+}
+
+function execRecordVocab(
+  input: Record<string, unknown>,
+  ctx: ToolExecutionContext,
+): string {
+  const now = new Date().toISOString();
+  const lang = input.lang as string;
+  const seen = (input.seen as string[]) ?? [];
+  const produced = (input.produced as string[]) ?? [];
+  const heard = (input.heard as string[]) ?? [];
+
+  const upsertWord = (word: string, field: "seen" | "produced" | "heard") => {
+    const lower = word.toLowerCase().trim();
+    if (!lower) return;
+
+    const countCol = `times_${field}`;
+    const firstCol = `first_${field}_at`;
+    const lastCol = `last_${field}_at`;
+
+    ctx.sql.exec(
+      `INSERT INTO vocab (lang, word, ${countCol}, ${firstCol}, ${lastCol})
+       VALUES (?, ?, 1, ?, ?)
+       ON CONFLICT(lang, word) DO UPDATE SET
+         ${countCol} = ${countCol} + 1,
+         ${firstCol} = COALESCE(${firstCol}, ?),
+         ${lastCol} = ?`,
+      lang, lower, now, now, now, now,
+    );
+  };
+
+  for (const w of seen) upsertWord(w, "seen");
+  for (const w of produced) upsertWord(w, "produced");
+  for (const w of heard) upsertWord(w, "heard");
+
+  return JSON.stringify({
+    success: true,
+    recorded: { seen: seen.length, produced: produced.length, heard: heard.length },
+  });
 }
 
 function execUpdateSession(

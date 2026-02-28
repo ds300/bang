@@ -187,9 +187,9 @@ function OverviewTab({ data }: { data: Record<string, unknown> }) {
       <Section title="Concept Counts">
         <JsonView data={data.conceptCounts} />
       </Section>
-      <Section title={`Topics: ${data.topicCount}`}>
+      <Section title={`Upcoming Concepts: ${data.upcomingConceptCount}`}>
         <span className="text-xs text-muted-foreground">
-          Unresolved topics in queue
+          Concepts in upcoming queue
         </span>
       </Section>
       <Section title={`Events: ${data.eventCount}`}>

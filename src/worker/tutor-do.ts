@@ -332,9 +332,9 @@ export class TutorDO extends DurableObject<Env> {
         const profile = [...this.sql.exec("SELECT * FROM user_profile")];
         const langProfile = [...this.sql.exec("SELECT * FROM lang_profile")];
         const conceptCounts = [...this.sql.exec("SELECT state, COUNT(*) as cnt FROM concepts GROUP BY state")];
-        const topicCount = [...this.sql.exec("SELECT COUNT(*) as cnt FROM topics WHERE resolved = 0")][0] as { cnt: number } | undefined;
+        const upcomingConceptCount = [...this.sql.exec("SELECT COUNT(*) as cnt FROM concepts_upcoming")][0] as { cnt: number } | undefined;
         const eventCount = [...this.sql.exec("SELECT COUNT(*) as cnt FROM events")][0] as { cnt: number } | undefined;
-        return Response.json({ sessions, profile, langProfile, conceptCounts, topicCount: topicCount?.cnt ?? 0, eventCount: eventCount?.cnt ?? 0 });
+        return Response.json({ sessions, profile, langProfile, conceptCounts, upcomingConceptCount: upcomingConceptCount?.cnt ?? 0, eventCount: eventCount?.cnt ?? 0 });
       }
       case "tables": {
         const tables = [...this.sql.exec("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name")];
@@ -346,7 +346,7 @@ export class TutorDO extends DurableObject<Env> {
         const offset = parseInt(url.searchParams.get("offset") ?? "0");
         if (!table) return Response.json({ error: "table required" }, { status: 400 });
         // Prevent SQL injection by whitelist-checking the table name
-        const validTables = ["events", "user_profile", "lang_profile", "concepts", "topics", "session_plans", "sessions", "messages", "agent_actions"];
+        const validTables = ["events", "user_profile", "lang_profile", "concepts", "concepts_upcoming", "vocab", "lessons_upcoming", "sessions", "messages", "agent_actions"];
         if (!validTables.includes(table)) return Response.json({ error: "Invalid table" }, { status: 400 });
         const rows = [...this.sql.exec(`SELECT * FROM ${table} ORDER BY rowid DESC LIMIT ? OFFSET ?`, limit, offset)];
         const total = [...this.sql.exec(`SELECT COUNT(*) as cnt FROM ${table}`)][0] as { cnt: number } | undefined;
@@ -446,42 +446,41 @@ export class TutorDO extends DurableObject<Env> {
       ...this.sql.exec("SELECT * FROM lang_profile WHERE lang = ?", lang),
     ][0] as Record<string, unknown> | undefined;
 
-    const currentConcepts = [
+    const introducingConcepts = [
       ...this.sql.exec(
-        "SELECT id, name, tags, notes FROM concepts WHERE lang = ? AND state = 'current'",
+        "SELECT id, name, tags, notes FROM concepts WHERE lang = ? AND state = 'introducing'",
         lang,
       ),
     ] as Array<{ id: number; name: string; tags: string; notes: string | null }>;
 
     const reviewDue = [
       ...this.sql.exec(
-        "SELECT id, name, tags FROM concepts WHERE lang = ? AND state = 'review' AND (sm2_next_review IS NULL OR sm2_next_review <= datetime('now'))",
+        "SELECT id, name, tags FROM concepts WHERE lang = ? AND state = 'reinforcing' AND (sm2_next_review IS NULL OR sm2_next_review <= datetime('now'))",
         lang,
       ),
     ] as Array<{ id: number; name: string; tags: string }>;
 
-    const learnedCount = [
+    const introducingCount = [
       ...this.sql.exec(
-        "SELECT COUNT(*) as cnt FROM concepts WHERE lang = ? AND state = 'learned'",
+        "SELECT COUNT(*) as cnt FROM concepts WHERE lang = ? AND state = 'introducing'",
         lang,
       ),
     ][0] as { cnt: number } | undefined;
 
-    const reviewCount = [
+    const reinforcingCount = [
       ...this.sql.exec(
-        "SELECT COUNT(*) as cnt FROM concepts WHERE lang = ? AND state = 'review'",
+        "SELECT COUNT(*) as cnt FROM concepts WHERE lang = ? AND state = 'reinforcing'",
         lang,
       ),
     ][0] as { cnt: number } | undefined;
 
-    const topicCount = [
+    const upcomingConceptCount = [
       ...this.sql.exec(
-        "SELECT COUNT(*) as cnt FROM topics WHERE lang = ? AND resolved = 0",
+        "SELECT COUNT(*) as cnt FROM concepts_upcoming WHERE lang = ?",
         lang,
       ),
     ][0] as { cnt: number } | undefined;
 
-    // Recent exercise results from last few sessions
     const recentExerciseResults = [
       ...this.sql.exec(
         `SELECT e.data, e.created_at FROM events e
@@ -492,7 +491,6 @@ export class TutorDO extends DurableObject<Env> {
     ].map((row) => {
       const r = row as { data: string; created_at: string };
       const data = JSON.parse(r.data);
-      // Look up concept name
       const concept = [...this.sql.exec(
         "SELECT name FROM concepts WHERE id = ?",
         data.concept_id,
@@ -505,25 +503,22 @@ export class TutorDO extends DurableObject<Env> {
       };
     });
 
-    // Unresolved topics
-    const unresolvedTopics = [
+    const upcomingConcepts = [
       ...this.sql.exec(
-        "SELECT id, description, priority FROM topics WHERE lang = ? AND resolved = 0 ORDER BY CASE priority WHEN 'next' THEN 1 WHEN 'soon' THEN 2 ELSE 3 END, id ASC LIMIT 10",
+        "SELECT id, name, type, priority, source FROM concepts_upcoming WHERE lang = ? ORDER BY CASE priority WHEN 'next' THEN 1 WHEN 'soon' THEN 2 ELSE 3 END, id ASC LIMIT 15",
         lang,
       ),
-    ] as Array<{ id: number; description: string; priority: string }>;
+    ] as Array<{ id: number; name: string; type: string; priority: string; source: string }>;
 
-    // Upcoming session plans
-    const upcomingPlans = [
+    const upcomingLessons = [
       ...this.sql.exec(
-        "SELECT id, type, description, status FROM session_plans WHERE lang = ? AND status IN ('planned', 'active') ORDER BY seq ASC LIMIT 5",
+        "SELECT id, type, title, description, status FROM lessons_upcoming WHERE lang = ? AND status IN ('planned', 'active') ORDER BY seq ASC LIMIT 5",
         lang,
       ),
-    ] as Array<{ id: number; type: string; description: string; status: string }>;
+    ] as Array<{ id: number; type: string; title: string; description: string; status: string }>;
 
-    // Current session info
     let sessionType: string | null = null;
-    let sessionPlanDescription: string | null = null;
+    let sessionLessonDescription: string | null = null;
     if (sessionId) {
       const session = [...this.sql.exec(
         "SELECT type, plan_id FROM sessions WHERE id = ?",
@@ -533,10 +528,10 @@ export class TutorDO extends DurableObject<Env> {
         sessionType = session.type;
         if (session.plan_id) {
           const plan = [...this.sql.exec(
-            "SELECT description FROM session_plans WHERE id = ?",
+            "SELECT description FROM lessons_upcoming WHERE id = ?",
             session.plan_id,
           )][0] as { description: string } | undefined;
-          sessionPlanDescription = plan?.description ?? null;
+          sessionLessonDescription = plan?.description ?? null;
         }
       }
     }
@@ -546,16 +541,16 @@ export class TutorDO extends DurableObject<Env> {
       targetLang: lang,
       cefrLevel: (langProfile?.cefr_level as string) ?? null,
       onboarded: (langProfile?.onboarded as number) === 1,
-      currentConcepts,
+      introducingConcepts,
       reviewDueConcepts: reviewDue,
-      learnedCount: (learnedCount?.cnt as number) ?? 0,
-      reviewCount: (reviewCount?.cnt as number) ?? 0,
-      topicCount: (topicCount?.cnt as number) ?? 0,
+      introducingCount: (introducingCount?.cnt as number) ?? 0,
+      reinforcingCount: (reinforcingCount?.cnt as number) ?? 0,
+      upcomingConceptCount: (upcomingConceptCount?.cnt as number) ?? 0,
       recentExerciseResults,
-      unresolvedTopics,
-      upcomingPlans,
+      upcomingConcepts,
+      upcomingLessons,
       sessionType,
-      sessionPlanDescription,
+      sessionLessonDescription,
     };
   }
 

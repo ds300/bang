@@ -3,20 +3,22 @@ export interface PromptContext {
   targetLang: string;
   cefrLevel: string | null;
   onboarded: boolean;
-  currentConcepts: Array<{
+  introducingConcepts: Array<{
     id: number;
     name: string;
     tags: string;
     notes: string | null;
   }>;
   reviewDueConcepts: Array<{ id: number; name: string; tags: string }>;
-  learnedCount: number;
-  reviewCount: number;
-  topicCount: number;
-  unresolvedTopics: Array<{
+  introducingCount: number;
+  reinforcingCount: number;
+  upcomingConceptCount: number;
+  upcomingConcepts: Array<{
     id: number;
-    description: string;
+    name: string;
+    type: string;
     priority: string;
+    source: string;
   }>;
   recentExerciseResults: Array<{
     concept_name: string;
@@ -24,14 +26,15 @@ export interface PromptContext {
     exercise_type: string;
     created_at: string;
   }>;
-  upcomingPlans: Array<{
+  upcomingLessons: Array<{
     id: number;
     type: string;
+    title: string;
     description: string;
     status: string;
   }>;
   sessionType: string | null;
-  sessionPlanDescription: string | null;
+  sessionLessonDescription: string | null;
 }
 
 const LANG_NAMES: Record<string, string> = {
@@ -102,9 +105,9 @@ function buildTutorPrompt(
     }.`
   );
 
-  // Current concepts
-  if (ctx.currentConcepts.length > 0) {
-    const items = ctx.currentConcepts
+  // Introducing concepts (top of pyramid, actively being taught)
+  if (ctx.introducingConcepts.length > 0) {
+    const items = ctx.introducingConcepts
       .map(
         (c) =>
           `- [${c.id}] ${c.name}${c.tags ? ` [${c.tags}]` : ""}${
@@ -112,10 +115,10 @@ function buildTutorPrompt(
           }`
       )
       .join("\n");
-    sections.push(`CURRENTLY LEARNING:\n${items}`);
+    sections.push(`INTRODUCING (active learning):\n${items}`);
   }
 
-  // Review due
+  // Review due (reinforcing concepts with SRS review due)
   if (ctx.reviewDueConcepts.length > 0) {
     const items = ctx.reviewDueConcepts
       .map((c) => `- [${c.id}] ${c.name}${c.tags ? ` [${c.tags}]` : ""}`)
@@ -125,7 +128,7 @@ function buildTutorPrompt(
 
   // Stats
   sections.push(
-    `STATS: ${ctx.learnedCount} learned, ${ctx.reviewCount} in review, ${ctx.topicCount} topics queued`
+    `STATS: ${ctx.introducingCount} introducing, ${ctx.reinforcingCount} reinforcing, ${ctx.upcomingConceptCount} upcoming`
   );
 
   // Recent exercise performance
@@ -136,44 +139,45 @@ function buildTutorPrompt(
     sections.push(`RECENT PERFORMANCE:\n${items}`);
   }
 
-  // Upcoming plans
-  if (ctx.upcomingPlans.length > 0) {
-    const items = ctx.upcomingPlans
-      .map((p) => `- [${p.id}] ${p.type}: ${p.description} (${p.status})`)
+  // Upcoming lessons
+  if (ctx.upcomingLessons.length > 0) {
+    const items = ctx.upcomingLessons
+      .map((l) => `- [${l.id}] ${l.type}: ${l.title} — ${l.description} (${l.status})`)
       .join("\n");
-    sections.push(`UPCOMING SESSIONS:\n${items}`);
+    sections.push(`UPCOMING LESSONS:\n${items}`);
   }
 
-  // Unresolved topics
-  if (ctx.unresolvedTopics.length > 0) {
-    const items = ctx.unresolvedTopics
-      .map((t) => `- [${t.id}] ${t.description} (${t.priority})`)
+  // Upcoming concepts (queue of things to learn)
+  if (ctx.upcomingConcepts.length > 0) {
+    const items = ctx.upcomingConcepts
+      .map((c) => `- [${c.id}] ${c.name} (${c.type}, ${c.priority}, from: ${c.source})`)
       .join("\n");
-    sections.push(`LEARNING TOPICS QUEUE:\n${items}`);
+    sections.push(`UPCOMING CONCEPTS:\n${items}`);
   }
 
   // Current session info
   if (ctx.sessionType) {
     let sessionInfo = `CURRENT SESSION: ${ctx.sessionType}`;
-    if (ctx.sessionPlanDescription) {
-      sessionInfo += ` — ${ctx.sessionPlanDescription}`;
+    if (ctx.sessionLessonDescription) {
+      sessionInfo += ` — ${ctx.sessionLessonDescription}`;
     }
     sections.push(sessionInfo);
   }
 
   sections.push(`SESSION BEHAVIOR:
 - When a new session starts, suggest a session type or let the student choose (practice, conversation, or learning).
-- For practice sessions: plan the session as a CONCRETE TODO LIST — not abstract descriptions in ${native}. Each planned item must be the FULL exercise as the student will see it: the actual sentence to translate, the actual <listen> sentence, the actual writing prompt in ${target}, or the actual spot-the-error sentence. No "Translation: subjunctive" — instead "Traduce al español: <nl>I hope she comes.</nl>". Generate 10 such items by default, mixing the four types (listening, translation, writing prompt, spot the error). Focus ~80% on current concepts, ~20% on review. Then use \`update_session\` with planned_exercises as a JSON array of these concrete items (each with type and the full text). Deliver exercises one by one in the chat in ${target}; do not dump the whole list in English.
-- For conversation sessions: engage the student in natural conversation using their current/review concepts.
-- For learning sessions: briefly introduce new concepts, then practice them with concrete exercises (same todo-list approach).
+- For practice sessions: plan the session as a CONCRETE TODO LIST — not abstract descriptions in ${native}. Each planned item must be the FULL exercise as the student will see it: the actual sentence to translate, the actual <listen> sentence, the actual writing prompt in ${target}, or the actual spot-the-error sentence. No "Translation: subjunctive" — instead "Traduce al español: <nl>I hope she comes.</nl>". Generate 10 such items by default, mixing the four types (listening, translation, writing prompt, spot the error). Focus ~80% on introducing concepts, ~20% on review. Then use \`update_session\` with planned_exercises as a JSON array of these concrete items (each with type and the full text). Deliver exercises one by one in the chat in ${target}; do not dump the whole list in English.
+- For conversation sessions: engage the student in natural conversation using their introducing/review concepts.
+- For learning sessions: briefly introduce new concepts (moving them from upcoming to introducing via \`add_concepts\`), then practice them with concrete exercises (same todo-list approach). Use \`plan_lessons\` to create lesson plans that pull from the upcoming concepts queue.
 - Use \`update_session\` to save the concrete exercise plan at the start and results at the end.
 - Use \`record_exercise_result\` after each exercise to log the student's performance with the appropriate quality rating.
-- Use \`move_concept\` when a concept should transition states (e.g. after consistent good performance, move from current to review).
+- Use \`move_concept\` when a concept should transition states (e.g. after consistent good performance, move from introducing to reinforcing).
+- Use \`add_upcoming_concept\` when you notice gaps in the student's knowledge that should be addressed in future lessons. After calling it, you MUST still reply to the student in ${target} in the same turn: briefly hint at the error (without giving the answer) and re-present or continue the exercise.
 
 EXERCISE RULES:
 - NEVER use fill-in-the-blank, multiple choice, or gap-fill exercises. Only: listening, translation, writing prompt, spot-the-error.
 - For listening exercises: wrap the hidden text in <listen>...</listen> tags.
-- When the student answers correctly, ALWAYS start your next message with ✓ (just the checkmark character followed by a new line) then move to the next exercise.
+- When the student answers correctly: your very next message MUST start with the character ✓ (Unicode checkmark U+2713) as the first character, then a newline, then the next exercise. No other opening (no "Correct", no "Bien", no space before the checkmark). Example first line: "✓"
 - When the student answers correctly, do not congratulate them or give them any feedback EXCEPT if their answer is technically correct but not idiomatic. In that case, let them know and explain the idiomatic version.
 - When incorrect, help them figure out what went wrong — don't just give the answer.
 - Be forgiving of minor synonym variations ("big" vs "large") unless testing specific vocabulary.
@@ -188,6 +192,7 @@ COMMUNICATION RULES:
 OUTPUT FORMAT:
 - Wrap ALL ${native} text in <nl>...</nl> tags
 - For listening exercises: <listen>sentence here</listen>
+- For a correct answer, the first line of your response must be exactly: ✓ (the checkmark character, nothing before or after on that line).
 - Do not use emojis unless the student asks for them.
 - Do NOT use markdown formatting ever.
 - REMEMBER: ALWAYS Speak in ${target}. Do not translate your messages unless EXPLICITLY asked to do so.

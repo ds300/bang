@@ -8,24 +8,27 @@ const TEST_CONTEXT: PromptContext = {
   targetLang: "es",
   cefrLevel: "B1",
   onboarded: true,
-  currentConcepts: [
+  introducingConcepts: [
     { id: 1, name: "Subjunctive mood with querer/esperar", tags: "grammar|subjunctive", notes: null },
     { id: 2, name: "Comparatives with tan/tanto", tags: "grammar|comparisons", notes: "Struggles with gender agreement" },
   ],
   reviewDueConcepts: [
     { id: 3, name: "Preterite vs imperfect", tags: "grammar|past-tenses" },
   ],
-  learnedCount: 12,
-  reviewCount: 4,
-  topicCount: 2,
-  unresolvedTopics: [],
+  introducingCount: 2,
+  reinforcingCount: 12,
+  upcomingConceptCount: 4,
+  upcomingConcepts: [
+    { id: 1, name: "Conditional tense", type: "grammar", priority: "next", source: "curriculum" },
+    { id: 2, name: "a lo mejor vs quizás", type: "idiom", priority: "soon", source: "highlight" },
+  ],
   recentExerciseResults: [
     { concept_name: "Subjunctive mood with querer/esperar", quality: "pass", exercise_type: "translation", created_at: "2026-02-23" },
     { concept_name: "Preterite vs imperfect", quality: "hard", exercise_type: "listening", created_at: "2026-02-23" },
   ],
-  upcomingPlans: [],
+  upcomingLessons: [],
   sessionType: "practice",
-  sessionPlanDescription: null,
+  sessionLessonDescription: null,
 };
 
 const startedAt = new Date().toISOString();

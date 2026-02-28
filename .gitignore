@@ -7,3 +7,4 @@ data/bang.db
 data/bang.db-journal
 data/bang.db-wal
 .wrangler
+evals/results/

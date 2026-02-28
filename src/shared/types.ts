@@ -14,15 +14,30 @@ export interface LangProfile {
   updated_at: string;
 }
 
+export interface ConceptUpcoming {
+  id: number;
+  lang: string;
+  name: string;
+  description: string | null;
+  type: "vocabulary" | "grammar" | "idiom" | "usage" | "other";
+  priority: "next" | "soon" | "later";
+  source: "highlight" | "user_request" | "ai_suggestion" | "curriculum";
+  source_session_id: string | null;
+  source_detail: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface Concept {
   id: number;
   lang: string;
   name: string;
   tags: string;
-  state: "current" | "review" | "learned";
+  state: "introducing" | "reinforcing";
   added_date: string;
   learned_date: string | null;
   notes: string | null;
+  source_upcoming_id: number | null;
   sm2_repetitions: number;
   sm2_easiness: number;
   sm2_interval: number;
@@ -32,24 +47,30 @@ export interface Concept {
   updated_at: string;
 }
 
-export interface Topic {
+export interface VocabEntry {
   id: number;
   lang: string;
-  description: string;
-  priority: "next" | "soon" | "later";
-  added_date: string;
-  source: string | null;
-  resolved: number;
-  updated_at: string;
+  word: string;
+  lemma: string | null;
+  times_seen: number;
+  times_produced: number;
+  times_heard: number;
+  first_seen_at: string | null;
+  last_seen_at: string | null;
+  first_produced_at: string | null;
+  last_produced_at: string | null;
+  first_heard_at: string | null;
+  last_heard_at: string | null;
 }
 
-export interface SessionPlan {
+export interface LessonPlan {
   id: number;
   lang: string;
   type: "practice" | "conversation" | "learning";
+  title: string;
   description: string;
-  topic_ids: string | null;
-  concept_ids: string | null;
+  upcoming_concept_ids: string | null;
+  review_concept_ids: string | null;
   seq: number;
   status: "planned" | "active" | "completed" | "skipped";
   created_at: string;
