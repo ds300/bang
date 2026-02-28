@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { apiFetch } from "@/lib/api";
 import { Button } from "@/components/ui/button";
-import { X, ChevronRight, RefreshCw, Copy, Check } from "lucide-react";
+import { X, ChevronRight, RefreshCw, Copy, Check, Camera } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface DebugPanelProps {
@@ -16,6 +16,7 @@ export function DebugPanel({ open, onClose }: DebugPanelProps) {
   const [data, setData] = useState<unknown>(null);
   const [loading, setLoading] = useState(false);
   const [selectedTable, setSelectedTable] = useState<string | null>(null);
+  const [snapshotState, setSnapshotState] = useState<"idle" | "loading" | "copied" | "error">("idle");
 
   const fetchData = useCallback(
     async (action: string, params?: Record<string, string>) => {
@@ -83,6 +84,43 @@ export function DebugPanel({ open, onClose }: DebugPanelProps) {
             </div>
           </div>
           <div className="flex items-center gap-1">
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-7 gap-1.5 px-2 text-xs"
+              disabled={snapshotState === "loading"}
+              onClick={async () => {
+                setSnapshotState("loading");
+                try {
+                  const res = await apiFetch("/api/debug?action=snapshot");
+                  const json = await res.json() as { typescript?: string; error?: string };
+                  if (json.error) {
+                    setSnapshotState("error");
+                    setTimeout(() => setSnapshotState("idle"), 2000);
+                    return;
+                  }
+                  await navigator.clipboard.writeText(json.typescript ?? "");
+                  setSnapshotState("copied");
+                  setTimeout(() => setSnapshotState("idle"), 2000);
+                } catch {
+                  setSnapshotState("error");
+                  setTimeout(() => setSnapshotState("idle"), 2000);
+                }
+              }}
+            >
+              {snapshotState === "copied" ? (
+                <Check className="h-3.5 w-3.5 text-green-500" />
+              ) : (
+                <Camera className="h-3.5 w-3.5" />
+              )}
+              {snapshotState === "loading"
+                ? "..."
+                : snapshotState === "copied"
+                  ? "Copied"
+                  : snapshotState === "error"
+                    ? "No session"
+                    : "Snapshot"}
+            </Button>
             <Button
               variant="ghost"
               size="icon"

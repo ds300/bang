@@ -6,7 +6,6 @@ const B1_SPANISH_BASE = {
   cefrLevel: "B1" as const,
   onboarded: true,
   reinforcingCount: 5,
-  upcomingConceptCount: 1,
   recentExerciseResults: [] as Array<{
     concept_name: string;
     quality: string;
@@ -36,14 +35,30 @@ export const scenarios: EvalScenario[] = [
     context: {
       ...B1_SPANISH_BASE,
       introducingConcepts: [
-        { id: 1, name: "preterite vs imperfect", tags: "grammar|past-tense", notes: null },
-        { id: 2, name: "direct object pronouns", tags: "grammar|pronouns", notes: null },
+        {
+          id: 1,
+          name: "preterite vs imperfect",
+          tags: "grammar|past-tense",
+          notes: null,
+        },
+        {
+          id: 2,
+          name: "direct object pronouns",
+          tags: "grammar|pronouns",
+          notes: null,
+        },
       ],
       reviewDueConcepts: [
         { id: 3, name: "ser vs estar", tags: "grammar|verbs" },
       ],
       upcomingConcepts: [
-        { id: 1, name: "por vs para", type: "grammar", priority: "soon", source: "curriculum" },
+        {
+          id: 1,
+          name: "por vs para",
+          type: "grammar",
+          priority: "soon",
+          source: "curriculum",
+        },
       ],
       recentExerciseResults: [
         {
@@ -98,15 +113,29 @@ export const scenarios: EvalScenario[] = [
       cefrLevel: "A2",
       onboarded: true,
       introducingConcepts: [
-        { id: 1, name: "present tense regular -ar verbs", tags: "grammar|verbs|present", notes: null },
-        { id: 2, name: "gender and number agreement", tags: "grammar|adjectives", notes: null },
+        {
+          id: 1,
+          name: "present tense regular -ar verbs",
+          tags: "grammar|verbs|present",
+          notes: null,
+        },
+        {
+          id: 2,
+          name: "gender and number agreement",
+          tags: "grammar|adjectives",
+          notes: null,
+        },
       ],
       reviewDueConcepts: [],
-      introducingCount: 2,
       reinforcingCount: 3,
-      upcomingConceptCount: 1,
       upcomingConcepts: [
-        { id: 1, name: "present tense irregular verbs", type: "grammar", priority: "next", source: "curriculum" },
+        {
+          id: 1,
+          name: "present tense irregular verbs",
+          type: "grammar",
+          priority: "next",
+          source: "curriculum",
+        },
       ],
       recentExerciseResults: [
         {
@@ -132,7 +161,8 @@ export const scenarios: EvalScenario[] = [
     ],
     rubric: [
       {
-        description: "Agent should NOT call add_upcoming_concept — this is a typo, not a knowledge gap.",
+        description:
+          "Agent should NOT call add_upcoming_concept — this is a typo, not a knowledge gap.",
         critical: true,
       },
       {
@@ -158,13 +188,23 @@ export const scenarios: EvalScenario[] = [
     context: {
       ...B1_SPANISH_BASE,
       introducingConcepts: [
-        { id: 1, name: "preterite vs imperfect", tags: "grammar|past-tense", notes: null },
+        {
+          id: 1,
+          name: "preterite vs imperfect",
+          tags: "grammar|past-tense",
+          notes: null,
+        },
         { id: 2, name: "reflexive verbs", tags: "grammar|verbs", notes: null },
       ],
-      introducingCount: 2,
       reviewDueConcepts: [],
       upcomingConcepts: [
-        { id: 1, name: "por vs para", type: "grammar", priority: "soon", source: "curriculum" },
+        {
+          id: 1,
+          name: "por vs para",
+          type: "grammar",
+          priority: "soon",
+          source: "curriculum",
+        },
       ],
     },
     messages: [
@@ -210,13 +250,23 @@ export const scenarios: EvalScenario[] = [
     context: {
       ...B1_SPANISH_BASE,
       introducingConcepts: [
-        { id: 1, name: "preterite vs imperfect", tags: "grammar|past-tense", notes: null },
+        {
+          id: 1,
+          name: "preterite vs imperfect",
+          tags: "grammar|past-tense",
+          notes: null,
+        },
         { id: 2, name: "reflexive verbs", tags: "grammar|verbs", notes: null },
       ],
-      introducingCount: 2,
       reviewDueConcepts: [],
       upcomingConcepts: [
-        { id: 1, name: "por vs para", type: "grammar", priority: "soon", source: "curriculum" },
+        {
+          id: 1,
+          name: "por vs para",
+          type: "grammar",
+          priority: "soon",
+          source: "curriculum",
+        },
       ],
       recentExerciseResults: [
         {
@@ -240,7 +290,8 @@ export const scenarios: EvalScenario[] = [
     ],
     rubric: [
       {
-        description: "Agent should NOT call add_upcoming_concept — the student got it right.",
+        description:
+          "Agent should NOT call add_upcoming_concept — the student got it right.",
         critical: true,
       },
       {
@@ -278,15 +329,29 @@ export const scenarios: EvalScenario[] = [
       cefrLevel: "A2",
       onboarded: true,
       introducingConcepts: [
-        { id: 1, name: "present tense regular -ar verbs", tags: "grammar|verbs|present", notes: null },
-        { id: 2, name: "gender and number agreement", tags: "grammar|adjectives", notes: null },
+        {
+          id: 1,
+          name: "present tense regular -ar verbs",
+          tags: "grammar|verbs|present",
+          notes: null,
+        },
+        {
+          id: 2,
+          name: "gender and number agreement",
+          tags: "grammar|adjectives",
+          notes: null,
+        },
       ],
       reviewDueConcepts: [],
-      introducingCount: 2,
       reinforcingCount: 3,
-      upcomingConceptCount: 1,
       upcomingConcepts: [
-        { id: 1, name: "present tense irregular verbs", type: "grammar", priority: "next", source: "curriculum" },
+        {
+          id: 1,
+          name: "present tense irregular verbs",
+          type: "grammar",
+          priority: "next",
+          source: "curriculum",
+        },
       ],
       recentExerciseResults: [
         {
@@ -314,15 +379,17 @@ export const scenarios: EvalScenario[] = [
       {
         description:
           "Agent should call add_upcoming_concept with a name related to weather vocabulary/expressions " +
-          'and source=user_request.',
+          "and source=user_request.",
         critical: true,
       },
       {
-        description: "Agent should acknowledge the request — the student should feel heard.",
+        description:
+          "Agent should acknowledge the request — the student should feel heard.",
         critical: false,
       },
       {
-        description: "Agent should steer back to the current session after acknowledging.",
+        description:
+          "Agent should steer back to the current session after acknowledging.",
         critical: false,
       },
       {
@@ -343,13 +410,23 @@ export const scenarios: EvalScenario[] = [
     context: {
       ...B1_SPANISH_BASE,
       introducingConcepts: [
-        { id: 1, name: "preterite vs imperfect", tags: "grammar|past-tense", notes: null },
+        {
+          id: 1,
+          name: "preterite vs imperfect",
+          tags: "grammar|past-tense",
+          notes: null,
+        },
         { id: 2, name: "reflexive verbs", tags: "grammar|verbs", notes: null },
       ],
-      introducingCount: 2,
       reviewDueConcepts: [],
       upcomingConcepts: [
-        { id: 1, name: "por vs para", type: "grammar", priority: "soon", source: "curriculum" },
+        {
+          id: 1,
+          name: "por vs para",
+          type: "grammar",
+          priority: "soon",
+          source: "curriculum",
+        },
       ],
     },
     messages: [
@@ -395,9 +472,46 @@ export const scenarios: EvalScenario[] = [
         critical: false,
       },
       {
-        description: "Agent should respond in Spanish (with possible <nl> tags for English clarifications).",
+        description:
+          "Agent should respond in Spanish (with possible <nl> tags for English clarifications).",
         critical: false,
       },
     ],
   },
-];
+
+  {
+    name: "Student asks for irregular gerunds",
+    tags: ["concept-proposal"],
+    description:
+      "Student asks for irregular gerunds, agent should propose a lesson plan to teach the different classes of irregular gerunds",
+    context: {
+      nativeLang: "en",
+      targetLang: "es",
+      cefrLevel: "A2",
+      onboarded: true,
+      introducingConcepts: [],
+      reviewDueConcepts: [],
+      reinforcingCount: 0,
+      recentExerciseResults: [],
+      upcomingConcepts: [],
+      upcomingLessons: [],
+      sessionType: "practice",
+      sessionLessonDescription: null,
+    },
+    messages: [
+      {
+        role: "assistant",
+        content:
+          "Vamos a empezar. ¿Qué tipo de sesión quieres hoy?\n\npractica — ejercicios de traducción, escritura y escucha\nconversacion — hablamos sobre un tema libre\naprendizaje — introducimos conceptos nuevos",
+      },
+      { role: "user", content: "teach me the irregular gerunds" },
+    ],
+    rubric: [
+      {
+        description:
+          "Agent should propose a lesson plan to teach the different classes of irregular gerunds",
+        critical: true,
+      },
+    ],
+  },
+] satisfies EvalScenario[];

@@ -101,7 +101,7 @@ export async function evalAgentTurn(
     apiKey,
     systemPrompt: buildSystemPrompt(scenario.context),
     messages: scenario.messages,
-    tools: getTools(),
+    tools: getTools({ includeProfileTools: !scenario.context.onboarded }),
     executeTool: mockToolResult,
     model,
   });

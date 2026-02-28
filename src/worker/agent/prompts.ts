@@ -1,18 +1,28 @@
+/**
+ * Context passed into the system prompt builder. Represents the student's
+ * profile, learning state, and current session for the tutor (or onboarding) agent.
+ */
 export interface PromptContext {
+  /** Student's native language (ISO 639-1, e.g. "en"). */
   nativeLang: string;
+  /** Language being learned (ISO 639-1, e.g. "es"). */
   targetLang: string;
+  /** Assessed CEFR level (A1–C2), or null if not yet set. */
   cefrLevel: string | null;
+  /** True if onboarding is complete; false triggers the onboarding interview and profile tools. */
   onboarded: boolean;
+  /** Concepts currently in "introducing" state (actively being taught, top of pyramid). */
   introducingConcepts: Array<{
     id: number;
     name: string;
     tags: string;
     notes: string | null;
   }>;
+  /** Concepts in "reinforcing" state that are due for SRS review now. */
   reviewDueConcepts: Array<{ id: number; name: string; tags: string }>;
-  introducingCount: number;
+  /** Total number of concepts in reinforcing state (not derivable: we only pass reviewDueConcepts, the subset due now). */
   reinforcingCount: number;
-  upcomingConceptCount: number;
+  /** Queue of concepts the student has asked for or that are suggested; not yet in the main concepts table. */
   upcomingConcepts: Array<{
     id: number;
     name: string;
@@ -20,12 +30,14 @@ export interface PromptContext {
     priority: string;
     source: string;
   }>;
+  /** Most recent exercise outcomes (concept, quality, type, date) for continuity. */
   recentExerciseResults: Array<{
     concept_name: string;
     quality: string;
     exercise_type: string;
     created_at: string;
   }>;
+  /** Planned or active lessons from the curriculum (title, description, status). */
   upcomingLessons: Array<{
     id: number;
     type: string;
@@ -33,7 +45,9 @@ export interface PromptContext {
     description: string;
     status: string;
   }>;
+  /** Current session type (e.g. "practice", "conversation") or null. */
   sessionType: string | null;
+  /** Description of the lesson plan driving this session, if any. */
   sessionLessonDescription: string | null;
 }
 
@@ -128,7 +142,7 @@ function buildTutorPrompt(
 
   // Stats
   sections.push(
-    `STATS: ${ctx.introducingCount} introducing, ${ctx.reinforcingCount} reinforcing, ${ctx.upcomingConceptCount} upcoming`
+    `STATS: ${ctx.introducingConcepts.length} introducing, ${ctx.reinforcingCount} reinforcing, ${ctx.upcomingConcepts.length} upcoming`
   );
 
   // Recent exercise performance

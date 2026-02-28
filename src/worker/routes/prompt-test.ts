@@ -15,9 +15,7 @@ const TEST_CONTEXT: PromptContext = {
   reviewDueConcepts: [
     { id: 3, name: "Preterite vs imperfect", tags: "grammar|past-tenses" },
   ],
-  introducingCount: 2,
   reinforcingCount: 12,
-  upcomingConceptCount: 4,
   upcomingConcepts: [
     { id: 1, name: "Conditional tense", type: "grammar", priority: "next", source: "curriculum" },
     { id: 2, name: "a lo mejor vs quizás", type: "idiom", priority: "soon", source: "highlight" },
@@ -35,7 +33,7 @@ const startedAt = new Date().toISOString();
 
 export function handlePromptTestGet(): Response {
   const systemPrompt = buildSystemPrompt(TEST_CONTEXT);
-  const tools = getTools();
+  const tools = getTools({ includeProfileTools: !TEST_CONTEXT.onboarded });
 
   return Response.json({
     systemPrompt,
@@ -54,7 +52,7 @@ export async function handlePromptTestPost(
   };
 
   const systemPrompt = buildSystemPrompt(TEST_CONTEXT);
-  const tools = getTools();
+  const tools = getTools({ includeProfileTools: !TEST_CONTEXT.onboarded });
   const client = new Anthropic({ apiKey });
 
   try {

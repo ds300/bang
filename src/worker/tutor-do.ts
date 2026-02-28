@@ -381,6 +381,38 @@ export class TutorDO extends DurableObject<Env> {
         const systemPrompt = buildSystemPrompt(ctx);
         return Response.json({ context: ctx, systemPrompt });
       }
+      case "snapshot": {
+        const activeSession = this.getActiveSession();
+        if (!activeSession) {
+          return Response.json({ error: "No active session" }, { status: 400 });
+        }
+        const sessionId = activeSession.id as string;
+        const lang = activeSession.lang as string;
+        const ctx = this.getAgentContext(lang, sessionId);
+        const allMessages = this.getSessionMessages(sessionId);
+
+        const dropLastN = parseInt(url.searchParams.get("drop_last") ?? "1");
+        const trimmed = allMessages.slice(0, Math.max(0, allMessages.length - dropLastN));
+
+        const apiMessages = trimmed.map((m) => ({
+          role: m.role,
+          content: m.text,
+        }));
+
+        const scenario = {
+          name: "TODO: name this scenario",
+          tags: ["TODO"],
+          description: "TODO: describe what this scenario tests",
+          context: ctx,
+          messages: apiMessages,
+          rubric: [
+            { description: "TODO: add rubric items", critical: true },
+          ],
+        };
+
+        const ts = this.formatScenarioAsTypeScript(scenario);
+        return Response.json({ scenario, typescript: ts });
+      }
       default:
         return Response.json({ error: "Unknown action" }, { status: 400 });
     }
@@ -403,7 +435,7 @@ export class TutorDO extends DurableObject<Env> {
     const userId = this.ctx.id.toString();
     const ctx = this.getAgentContext(lang, sessionId);
     const systemPrompt = buildSystemPrompt(ctx);
-    const tools = getTools();
+    const tools = getTools({ includeProfileTools: !ctx.onboarded });
 
     const ws = this.ctx.getWebSockets()[0];
     const onStep = (step: unknown) => {
@@ -460,23 +492,9 @@ export class TutorDO extends DurableObject<Env> {
       ),
     ] as Array<{ id: number; name: string; tags: string }>;
 
-    const introducingCount = [
-      ...this.sql.exec(
-        "SELECT COUNT(*) as cnt FROM concepts WHERE lang = ? AND state = 'introducing'",
-        lang,
-      ),
-    ][0] as { cnt: number } | undefined;
-
     const reinforcingCount = [
       ...this.sql.exec(
         "SELECT COUNT(*) as cnt FROM concepts WHERE lang = ? AND state = 'reinforcing'",
-        lang,
-      ),
-    ][0] as { cnt: number } | undefined;
-
-    const upcomingConceptCount = [
-      ...this.sql.exec(
-        "SELECT COUNT(*) as cnt FROM concepts_upcoming WHERE lang = ?",
         lang,
       ),
     ][0] as { cnt: number } | undefined;
@@ -543,15 +561,40 @@ export class TutorDO extends DurableObject<Env> {
       onboarded: (langProfile?.onboarded as number) === 1,
       introducingConcepts,
       reviewDueConcepts: reviewDue,
-      introducingCount: (introducingCount?.cnt as number) ?? 0,
       reinforcingCount: (reinforcingCount?.cnt as number) ?? 0,
-      upcomingConceptCount: (upcomingConceptCount?.cnt as number) ?? 0,
       recentExerciseResults,
       upcomingConcepts,
       upcomingLessons,
       sessionType,
       sessionLessonDescription,
     };
+  }
+
+  private formatScenarioAsTypeScript(scenario: Record<string, unknown>): string {
+    const ctx = scenario.context as Record<string, unknown>;
+    const messages = scenario.messages as Array<{ role: string; content: string }>;
+    const rubric = scenario.rubric as Array<{ description: string; critical: boolean }>;
+
+    const indent = (s: string, n: number) => s.split("\n").map((l, i) => i === 0 ? l : " ".repeat(n) + l).join("\n");
+
+    let ts = `  {\n`;
+    ts += `    name: ${JSON.stringify(scenario.name)},\n`;
+    ts += `    tags: ${JSON.stringify(scenario.tags)},\n`;
+    ts += `    description: ${JSON.stringify(scenario.description)},\n`;
+    ts += `    context: ${indent(JSON.stringify(ctx, null, 2), 4)},\n`;
+    ts += `    messages: [\n`;
+    for (const m of messages) {
+      const content = JSON.stringify(m.content);
+      ts += `      { role: ${JSON.stringify(m.role)}, content: ${content} },\n`;
+    }
+    ts += `    ],\n`;
+    ts += `    rubric: [\n`;
+    for (const r of rubric) {
+      ts += `      { description: ${JSON.stringify(r.description)}, critical: ${r.critical} },\n`;
+    }
+    ts += `    ],\n`;
+    ts += `  }`;
+    return ts;
   }
 
   private wsSend(ws: WebSocket, msg: ServerMessage): void {

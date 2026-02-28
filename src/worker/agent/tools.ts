@@ -5,8 +5,19 @@ import type { ExerciseQuality } from "../db/sm2";
 
 export type ToolDefinition = Anthropic.Tool;
 
-export function getTools(): ToolDefinition[] {
-  return [
+const PROFILE_TOOL_NAMES = new Set(["set_profile", "set_lang_profile"]);
+
+export interface GetToolsOptions {
+  /**
+   * Include set_profile and set_lang_profile. Omit or true for onboarding;
+   * false for the lesson agent (profile is already set; CEFR updates belong to a separate placement flow).
+   */
+  includeProfileTools?: boolean;
+}
+
+export function getTools(options?: GetToolsOptions): ToolDefinition[] {
+  const includeProfileTools = options?.includeProfileTools !== false;
+  const all = [
     {
       name: "set_profile",
       description:
@@ -358,6 +369,8 @@ export function getTools(): ToolDefinition[] {
       },
     },
   ];
+  if (includeProfileTools) return all;
+  return all.filter((t) => !PROFILE_TOOL_NAMES.has(t.name));
 }
 
 export interface ToolExecutionContext {
