@@ -2,6 +2,7 @@ import { handleSignup, handleLogin, extractDoId } from "./auth";
 import { handleTranslate } from "./routes/translate";
 import { handleBreakdown, handleBreakdownAsk } from "./routes/breakdown";
 import { handlePromptTestGet, handlePromptTestPost } from "./routes/prompt-test";
+import { handleGeneratePlacementText } from "./routes/placement-text";
 
 export { TutorDO } from "./tutor-do";
 
@@ -15,7 +16,7 @@ export interface Env {
 function corsHeaders(): HeadersInit {
   return {
     "Access-Control-Allow-Origin": "*",
-    "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+    "Access-Control-Allow-Methods": "GET, POST, PATCH, OPTIONS",
     "Access-Control-Allow-Headers": "Content-Type, Authorization",
   };
 }
@@ -105,6 +106,22 @@ export default {
         await stub.fetch(new Request("https://do/sessions")),
       );
     }
+    // Create session (e.g. after placement) -> DO
+    if (url.pathname === "/api/sessions" && request.method === "POST") {
+      const doRequest = new Request("https://do/sessions", {
+        method: "POST",
+        headers: request.headers,
+        body: request.body,
+      });
+      return corsResponse(await stub.fetch(doRequest));
+    }
+
+    // Lang profile (e.g. is lang onboarded?) -> DO
+    if (url.pathname === "/api/lang-profile" && request.method === "GET") {
+      const doUrl = new URL("https://do/lang-profile");
+      doUrl.search = url.search;
+      return corsResponse(await stub.fetch(doUrl.toString()));
+    }
 
     // Session messages -> DO
     const sessionMessagesMatch = /^\/api\/sessions\/([^/]+)\/messages$/.exec(url.pathname);
@@ -113,6 +130,27 @@ export default {
       return corsResponse(
         await stub.fetch(new Request(`https://do/sessions/${sessionId}/messages`)),
       );
+    }
+
+    // Placement text generation (stateless, worker)
+    if (url.pathname === "/api/placement/generate-text" && request.method === "POST") {
+      return corsResponse(
+        await handleGeneratePlacementText(request, env.ANTHROPIC_API_KEY),
+      );
+    }
+
+    // Placement onboarding -> DO
+    const placementMatch = /^\/api\/placement(\/.*)?$/.exec(url.pathname);
+    if (placementMatch) {
+      const path = placementMatch[1] ?? "";
+      const doUrl = new URL(`https://do/placement${path}`);
+      doUrl.search = url.search;
+      const doRequest = new Request(doUrl.toString(), {
+        method: request.method,
+        headers: request.headers,
+        body: request.method !== "GET" && request.method !== "HEAD" ? request.body : undefined,
+      });
+      return corsResponse(await stub.fetch(doRequest));
     }
 
     return corsResponse(

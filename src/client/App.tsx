@@ -11,6 +11,7 @@ import { AuthScreen } from "@/components/AuthScreen";
 import { DebugPanel } from "@/components/DebugPanel";
 import { PromptTestPage } from "@/components/PromptTestPage";
 import { TranslationTestPage } from "@/components/TranslationTestPage";
+import { PlacementFlow } from "@/components/PlacementFlow";
 import { apiFetch } from "@/lib/api";
 
 function MainView() {
@@ -110,6 +111,7 @@ function MainView() {
       <AuthScreen
         onLogin={auth.login}
         onSignup={auth.signup}
+        onFinishSignup={auth.finishSignup}
         loading={auth.loading}
       />
     );
@@ -126,6 +128,7 @@ function MainView() {
           sessionActive={session.sessionActive}
           onStartSession={session.startSession}
           onEndSession={session.endSession}
+          disableStartSession={routeSessionId != null && session.sessionId == null}
         />
         <main className="flex-1 overflow-hidden">
           <Chat
@@ -174,6 +177,7 @@ export function App() {
     <Routes>
       <Route path="/prompt-test" element={<PromptTestPage />} />
       <Route path="/__test__" element={<TranslationTestPage />} />
+      <Route path="/onboard/:lang" element={<PlacementFlow />} />
       <Route path="/session/:sessionId" element={<MainView />} />
       <Route path="/" element={<MainView />} />
     </Routes>

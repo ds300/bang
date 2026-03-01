@@ -50,6 +50,7 @@ export function useAuth() {
 
   async function signup(): Promise<{
     password?: string;
+    token?: string;
     error?: string;
   }> {
     setState((s) => ({ ...s, loading: true }));
@@ -60,18 +61,20 @@ export function useAuth() {
         return { error: "Signup failed" };
       }
       const data = await res.json();
+      // Store password so we can log in later; do NOT set token yet so we stay on AuthScreen
+      // until the user clicks Continue (see finishSignup).
       localStorage.setItem(PASSWORD_KEY, data.password);
-      localStorage.setItem(TOKEN_KEY, data.token);
-      setState({
-        password: data.password,
-        token: data.token,
-        loading: false,
-      });
-      return { password: data.password };
+      setState((s) => ({ ...s, loading: false }));
+      return { password: data.password, token: data.token };
     } catch (err) {
       setState((s) => ({ ...s, loading: false }));
       return { error: "Network error" };
     }
+  }
+
+  function finishSignup(token: string): void {
+    localStorage.setItem(TOKEN_KEY, token);
+    setState((s) => ({ ...s, token }));
   }
 
   const logout = useCallback(() => {
@@ -86,6 +89,7 @@ export function useAuth() {
     loading: state.loading,
     login,
     signup,
+    finishSignup,
     logout,
   };
 }

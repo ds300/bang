@@ -1,20 +1,26 @@
 import { useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Loader2, Copy, Check } from "lucide-react";
 
 interface AuthScreenProps {
   onLogin: (password: string) => Promise<{ error?: string }>;
-  onSignup: () => Promise<{ password?: string; error?: string }>;
+  onSignup: () => Promise<{ password?: string; token?: string; error?: string }>;
+  onFinishSignup: (token: string) => void;
   loading: boolean;
 }
 
-export function AuthScreen({ onLogin, onSignup, loading }: AuthScreenProps) {
+const DEFAULT_FIRST_LANG = "es";
+
+export function AuthScreen({ onLogin, onSignup, onFinishSignup, loading }: AuthScreenProps) {
+  const navigate = useNavigate();
   const [mode, setMode] = useState<"login" | "signup" | "show-password">(
     "login",
   );
   const [password, setPassword] = useState("");
   const [generatedPassword, setGeneratedPassword] = useState("");
+  const [pendingToken, setPendingToken] = useState<string | null>(null);
   const [error, setError] = useState("");
   const [copied, setCopied] = useState(false);
 
@@ -30,8 +36,9 @@ export function AuthScreen({ onLogin, onSignup, loading }: AuthScreenProps) {
     const result = await onSignup();
     if (result.error) {
       setError(result.error);
-    } else if (result.password) {
+    } else if (result.password && result.token) {
       setGeneratedPassword(result.password);
+      setPendingToken(result.token);
       setMode("show-password");
     }
   }
@@ -64,8 +71,19 @@ export function AuthScreen({ onLogin, onSignup, loading }: AuthScreenProps) {
             </Button>
           </div>
           <p className="text-xs text-muted-foreground">
-            You're now logged in. Start learning!
+            You're now logged in. Next, we'll place you in a language so you can start learning.
           </p>
+          <Button
+            className="w-full"
+            onClick={() => {
+              if (pendingToken) {
+                onFinishSignup(pendingToken);
+                navigate(`/onboard/${DEFAULT_FIRST_LANG}`);
+              }
+            }}
+          >
+            Continue
+          </Button>
         </div>
       </div>
     );

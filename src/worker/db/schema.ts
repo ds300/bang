@@ -117,5 +117,29 @@ export function initSchema(sql: SqlStorage): void {
       data TEXT NOT NULL,
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
+
+    CREATE TABLE IF NOT EXISTS placement_run (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id TEXT NOT NULL,
+      lang TEXT NOT NULL,
+      placement_text TEXT NOT NULL,
+      highlights TEXT,
+      rest_too_difficult INTEGER NOT NULL DEFAULT 0,
+      status TEXT NOT NULL DEFAULT 'text',
+      phase1_output TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS placement_exercises (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      placement_id INTEGER NOT NULL,
+      ordinal INTEGER NOT NULL,
+      prompt TEXT NOT NULL,
+      type TEXT NOT NULL DEFAULT 'translation',
+      user_answer TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      FOREIGN KEY (placement_id) REFERENCES placement_run(id)
+    );
   `);
 }

@@ -1,9 +1,18 @@
 import { DurableObject } from "cloudflare:workers";
 import { nanoid } from "nanoid";
+import Anthropic from "@anthropic-ai/sdk";
 import { initSchema } from "./db/schema";
 import { buildSystemPrompt } from "./agent/prompts";
-import { getTools } from "./agent/tools";
-import { runAgentTurn } from "./agent/harness";
+import { getTools, executeTool } from "./agent/tools";
+import { runAgentTurn, runAgentLoop } from "./agent/harness";
+import {
+  buildPlacementPhase1SystemPrompt,
+  buildPlacementPhase1UserMessage,
+  buildPlacementPhase2SystemPrompt,
+  buildPlacementPhase2UserMessage,
+  buildPlacementPhase3SystemPrompt,
+  buildPlacementPhase3UserMessage,
+} from "./agent/placement-prompts";
 import type { ClientMessage, ServerMessage } from "../shared/protocol";
 import type { ChatMessage } from "../shared/types";
 import type Anthropic from "@anthropic-ai/sdk";
@@ -51,9 +60,50 @@ export class TutorDO extends DurableObject<Env> {
     if (url.pathname === "/sessions" && request.method === "GET") {
       return this.handleSessionsList();
     }
+    if (url.pathname === "/sessions" && request.method === "POST") {
+      return this.handleNewSessionHttp(request);
+    }
+    if (url.pathname === "/lang-profile" && request.method === "GET") {
+      return this.handleLangProfileGet(request);
+    }
     const sessionsMessagesMatch = /^\/sessions\/([^/]+)\/messages$/.exec(url.pathname);
     if (sessionsMessagesMatch && request.method === "GET") {
       return this.handleSessionMessages(sessionsMessagesMatch[1]);
+    }
+
+    // Placement onboarding
+    if (url.pathname === "/placement/run" && request.method === "POST") {
+      return this.handlePlacementRunCreate(request);
+    }
+    if (url.pathname === "/placement/run" && request.method === "GET") {
+      return this.handlePlacementRunGet(request);
+    }
+    const placementRunMatch = /^\/placement\/run\/([^/]+)$/.exec(url.pathname);
+    if (placementRunMatch) {
+      const id = placementRunMatch[1];
+      if (request.method === "PATCH") return this.handlePlacementRunUpdate(request, id);
+      if (request.method === "GET") return this.handlePlacementRunGetById(id);
+    }
+    const placementExerciseMatch = /^\/placement\/run\/([^/]+)\/exercises\/([^/]+)$/.exec(url.pathname);
+    if (placementExerciseMatch && request.method === "PATCH") {
+      return this.handlePlacementExerciseAnswer(request, placementExerciseMatch[1], placementExerciseMatch[2]);
+    }
+    const placementPhase1Match = /^\/placement\/run\/([^/]+)\/phase1$/.exec(url.pathname);
+    if (placementPhase1Match && request.method === "POST") {
+      return this.handlePlacementPhase1(request, placementPhase1Match[1]);
+    }
+    const placementPhase2Match = /^\/placement\/run\/([^/]+)\/phase2$/.exec(url.pathname);
+    if (placementPhase2Match && request.method === "POST") {
+      return this.handlePlacementPhase2(placementPhase2Match[1]);
+    }
+    const placementPhase3Match = /^\/placement\/run\/([^/]+)\/phase3$/.exec(url.pathname);
+    if (placementPhase3Match && request.method === "POST") {
+      return this.handlePlacementPhase3(placementPhase3Match[1]);
+    }
+    const placementExercisesMatch = /^\/placement\/run\/([^/]+)\/exercises$/.exec(url.pathname);
+    if (placementExercisesMatch) {
+      if (request.method === "POST") return this.handlePlacementExercisesSet(request, placementExercisesMatch[1]);
+      if (request.method === "GET") return this.handlePlacementExercisesGet(placementExercisesMatch[1]);
     }
 
     return new Response("Not found", { status: 404 });
@@ -77,6 +127,51 @@ export class TutorDO extends DurableObject<Env> {
     });
   }
 
+  private async handleNewSessionHttp(request: Request): Promise<Response> {
+    let body: { lang?: string };
+    try {
+      body = (await request.json()) as { lang?: string };
+    } catch {
+      return Response.json({ error: "Invalid JSON" }, { status: 400 });
+    }
+    const lang = body.lang ?? "es";
+    this.sql.exec(
+      "UPDATE sessions SET status = 'completed', ended_at = datetime('now') WHERE status = 'active'",
+    );
+    const sessionId = nanoid();
+    this.sql.exec(
+      "INSERT INTO sessions (id, lang, type, status, started_at) VALUES (?, ?, 'practice', 'active', datetime('now'))",
+      sessionId,
+      lang,
+    );
+    try {
+      const initialMessage: Anthropic.MessageParam = {
+        role: "user",
+        content: "Start a new session.",
+      };
+      const responseText = await this.runAgent(sessionId, lang, [initialMessage]);
+      const messageId = crypto.randomUUID();
+      this.sql.exec(
+        "INSERT INTO messages (session_id, role, content, message_id) VALUES (?, 'assistant', ?, ?)",
+        sessionId,
+        responseText,
+        messageId,
+      );
+    } catch {
+      // Session created; first message failed - client can still open the session
+    }
+    return Response.json({ sessionId, lang });
+  }
+
+  private handleLangProfileGet(request: Request): Response {
+    const url = new URL(request.url);
+    const lang = url.searchParams.get("lang");
+    if (!lang) return Response.json({ error: "lang query required" }, { status: 400 });
+    const rows = [...this.sql.exec("SELECT onboarded FROM lang_profile WHERE lang = ?", lang)];
+    const row = rows[0] as { onboarded: number } | undefined;
+    return Response.json({ onboarded: (row?.onboarded ?? 0) === 1 });
+  }
+
   private handleSessionMessages(sessionId: string): Response {
     const sessionRow = [
       ...this.sql.exec("SELECT id, lang, started_at, ended_at FROM sessions WHERE id = ?", sessionId),
@@ -88,6 +183,360 @@ export class TutorDO extends DurableObject<Env> {
     return Response.json({
       session: { id: sessionRow.id, lang: sessionRow.lang, started_at: sessionRow.started_at, ended_at: sessionRow.ended_at },
       messages,
+    });
+  }
+
+  private getUserId(): string {
+    return this.ctx.id.toString();
+  }
+
+  private async handlePlacementRunCreate(request: Request): Promise<Response> {
+    let body: { lang: string; placement_text: string };
+    try {
+      body = (await request.json()) as { lang: string; placement_text: string };
+    } catch {
+      return Response.json({ error: "Invalid JSON" }, { status: 400 });
+    }
+    if (!body.lang || !body.placement_text) {
+      return Response.json({ error: "lang and placement_text required" }, { status: 400 });
+    }
+    const userId = this.getUserId();
+    const now = new Date().toISOString();
+    this.sql.exec(
+      "INSERT INTO placement_run (user_id, lang, placement_text, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
+      userId,
+      body.lang,
+      body.placement_text,
+      now,
+      now,
+    );
+    const row = [...this.sql.exec("SELECT last_insert_rowid() as id")][0] as { id: number };
+    return Response.json({ placement_id: row.id, placement_text: body.placement_text, lang: body.lang });
+  }
+
+  private handlePlacementRunGet(request: Request): Response {
+    const url = new URL(request.url);
+    const lang = url.searchParams.get("lang");
+    if (!lang) return Response.json({ error: "lang query required" }, { status: 400 });
+    const userId = this.getUserId();
+    const rows = [
+      ...this.sql.exec(
+        "SELECT id, lang, placement_text, highlights, rest_too_difficult, status, phase1_output, created_at, updated_at FROM placement_run WHERE user_id = ? AND lang = ? ORDER BY id DESC LIMIT 1",
+        userId,
+        lang,
+      ),
+    ];
+    const run = rows[0] as Record<string, unknown> | undefined;
+    if (!run) return Response.json({ run: null });
+    return Response.json({
+      run: {
+        id: run.id,
+        lang: run.lang,
+        placement_text: run.placement_text,
+        highlights: run.highlights != null ? JSON.parse(run.highlights as string) : null,
+        rest_too_difficult: (run.rest_too_difficult as number) === 1,
+        status: run.status,
+        phase1_output: run.phase1_output,
+        created_at: run.created_at,
+        updated_at: run.updated_at,
+      },
+    });
+  }
+
+  private handlePlacementRunGetById(placementId: string): Response {
+    const userId = this.getUserId();
+    const rows = [
+      ...this.sql.exec(
+        "SELECT id, lang, placement_text, highlights, rest_too_difficult, status, phase1_output, created_at, updated_at FROM placement_run WHERE id = ? AND user_id = ?",
+        parseInt(placementId, 10),
+        userId,
+      ),
+    ];
+    const run = rows[0] as Record<string, unknown> | undefined;
+    if (!run) return Response.json({ error: "Placement run not found" }, { status: 404 });
+    return Response.json({
+      run: {
+        id: run.id,
+        lang: run.lang,
+        placement_text: run.placement_text,
+        highlights: run.highlights != null ? JSON.parse(run.highlights as string) : null,
+        rest_too_difficult: (run.rest_too_difficult as number) === 1,
+        status: run.status,
+        phase1_output: run.phase1_output,
+        created_at: run.created_at,
+        updated_at: run.updated_at,
+      },
+    });
+  }
+
+  private async handlePlacementRunUpdate(request: Request, placementId: string): Promise<Response> {
+    let body: { highlights?: unknown; rest_too_difficult?: boolean; status?: string; phase1_output?: string };
+    try {
+      body = (await request.json()) as { highlights?: unknown; rest_too_difficult?: boolean; status?: string; phase1_output?: string };
+    } catch {
+      return Response.json({ error: "Invalid JSON" }, { status: 400 });
+    }
+    const userId = this.getUserId();
+    const id = parseInt(placementId, 10);
+    const existing = [...this.sql.exec("SELECT id FROM placement_run WHERE id = ? AND user_id = ?", id, userId)];
+    if (existing.length === 0) return Response.json({ error: "Placement run not found" }, { status: 404 });
+
+    const updates: string[] = [];
+    const values: unknown[] = [];
+    if (body.highlights !== undefined) {
+      updates.push("highlights = ?");
+      values.push(JSON.stringify(body.highlights));
+    }
+    if (body.rest_too_difficult !== undefined) {
+      updates.push("rest_too_difficult = ?");
+      values.push(body.rest_too_difficult ? 1 : 0);
+    }
+    if (body.status !== undefined) {
+      updates.push("status = ?");
+      values.push(body.status);
+    }
+    if (body.phase1_output !== undefined) {
+      updates.push("phase1_output = ?");
+      values.push(body.phase1_output);
+    }
+    if (updates.length === 0) return Response.json({ success: true });
+    updates.push("updated_at = ?");
+    values.push(new Date().toISOString());
+    values.push(id, userId);
+    this.sql.exec(
+      `UPDATE placement_run SET ${updates.join(", ")} WHERE id = ? AND user_id = ?`,
+      ...values,
+    );
+    return Response.json({ success: true });
+  }
+
+  private async handlePlacementExercisesSet(request: Request, placementId: string): Promise<Response> {
+    let body: { exercises: Array<{ prompt: string; type?: string }> };
+    try {
+      body = (await request.json()) as { exercises: Array<{ prompt: string; type?: string }> };
+    } catch {
+      return Response.json({ error: "Invalid JSON" }, { status: 400 });
+    }
+    if (!body.exercises || !Array.isArray(body.exercises) || body.exercises.length === 0) {
+      return Response.json({ error: "exercises array required" }, { status: 400 });
+    }
+    const userId = this.getUserId();
+    const id = parseInt(placementId, 10);
+    const existing = [...this.sql.exec("SELECT id FROM placement_run WHERE id = ? AND user_id = ?", id, userId)];
+    if (existing.length === 0) return Response.json({ error: "Placement run not found" }, { status: 404 });
+
+    const now = new Date().toISOString();
+    for (let i = 0; i < body.exercises.length; i++) {
+      const ex = body.exercises[i];
+      this.sql.exec(
+        "INSERT INTO placement_exercises (placement_id, ordinal, prompt, type, created_at) VALUES (?, ?, ?, ?, ?)",
+        id,
+        i + 1,
+        ex.prompt ?? "",
+        ex.type ?? "translation",
+        now,
+      );
+    }
+    return Response.json({ success: true, count: body.exercises.length });
+  }
+
+  private handlePlacementExercisesGet(placementId: string): Response {
+    const userId = this.getUserId();
+    const id = parseInt(placementId, 10);
+    const existing = [...this.sql.exec("SELECT id FROM placement_run WHERE id = ? AND user_id = ?", id, userId)];
+    if (existing.length === 0) return Response.json({ error: "Placement run not found" }, { status: 404 });
+
+    const rows = [
+      ...this.sql.exec(
+        "SELECT ordinal, prompt, type, user_answer FROM placement_exercises WHERE placement_id = ? ORDER BY ordinal ASC",
+        id,
+      ),
+    ];
+    return Response.json({
+      exercises: rows.map((r) => ({
+        ordinal: (r as Record<string, unknown>).ordinal,
+        prompt: (r as Record<string, unknown>).prompt,
+        type: (r as Record<string, unknown>).type,
+        user_answer: (r as Record<string, unknown>).user_answer,
+      })),
+    });
+  }
+
+  private async handlePlacementExerciseAnswer(
+    request: Request,
+    placementId: string,
+    ordinalStr: string,
+  ): Promise<Response> {
+    let body: { user_answer: string };
+    try {
+      body = (await request.json()) as { user_answer: string };
+    } catch {
+      return Response.json({ error: "Invalid JSON" }, { status: 400 });
+    }
+    const userId = this.getUserId();
+    const id = parseInt(placementId, 10);
+    const ordinal = parseInt(ordinalStr, 10);
+    const existing = [...this.sql.exec("SELECT id FROM placement_run WHERE id = ? AND user_id = ?", id, userId)];
+    if (existing.length === 0) return Response.json({ error: "Placement run not found" }, { status: 404 });
+
+    this.sql.exec(
+      "UPDATE placement_exercises SET user_answer = ? WHERE placement_id = ? AND ordinal = ?",
+      body.user_answer ?? "",
+      id,
+      ordinal,
+    );
+    return Response.json({ success: true });
+  }
+
+  private async handlePlacementPhase1(request: Request, placementIdStr: string): Promise<Response> {
+    const userId = this.getUserId();
+    const id = parseInt(placementIdStr, 10);
+    const rows = [
+      ...this.sql.exec(
+        "SELECT id, lang, placement_text, highlights, rest_too_difficult FROM placement_run WHERE id = ? AND user_id = ?",
+        id,
+        userId,
+      ),
+    ];
+    const run = rows[0] as Record<string, unknown> | undefined;
+    if (!run) return Response.json({ error: "Placement run not found" }, { status: 404 });
+
+    const placementText = run.placement_text as string;
+    const highlights = run.highlights != null ? (JSON.parse(run.highlights as string) as Array<{ startIdx: number; endIdx: number }>) : [];
+    const restTooDifficult = (run.rest_too_difficult as number) === 1;
+    const lang = run.lang as string;
+
+    const client = new Anthropic({ apiKey: this.env.ANTHROPIC_API_KEY });
+    const system = buildPlacementPhase1SystemPrompt(lang);
+    const userContent = buildPlacementPhase1UserMessage(placementText, highlights, restTooDifficult);
+
+    const response = await client.messages.create({
+      model: "claude-sonnet-4-6",
+      max_tokens: 2048,
+      system,
+      messages: [{ role: "user", content: userContent }],
+    });
+
+    const textBlocks = response.content.filter((c): c is { type: "text"; text: string } => c.type === "text");
+    const phase1Output = textBlocks.map((b) => b.text).join("\n\n").trim();
+
+    this.sql.exec(
+      "UPDATE placement_run SET phase1_output = ?, updated_at = datetime('now') WHERE id = ? AND user_id = ?",
+      phase1Output,
+      id,
+      userId,
+    );
+
+    return Response.json({ success: true, phase1_output: phase1Output });
+  }
+
+  private async handlePlacementPhase2(placementIdStr: string): Promise<Response> {
+    const userId = this.getUserId();
+    const id = parseInt(placementIdStr, 10);
+    const rows = [
+      ...this.sql.exec(
+        "SELECT id, lang, placement_text, highlights, rest_too_difficult, phase1_output FROM placement_run WHERE id = ? AND user_id = ?",
+        id,
+        userId,
+      ),
+    ];
+    const run = rows[0] as Record<string, unknown> | undefined;
+    if (!run) return Response.json({ error: "Placement run not found" }, { status: 404 });
+    if (!run.phase1_output) return Response.json({ error: "Run phase1 first" }, { status: 400 });
+
+    const lang = run.lang as string;
+    const highlights = run.highlights != null ? (JSON.parse(run.highlights as string) as Array<{ startIdx: number; endIdx: number }>) : [];
+    const restTooDifficult = (run.rest_too_difficult as number) === 1;
+    const phase1Output = run.phase1_output as string;
+
+    const system = buildPlacementPhase2SystemPrompt(lang, phase1Output, highlights.length, restTooDifficult);
+    const userContent = buildPlacementPhase2UserMessage();
+
+    const tools = getTools({ includeProfileTools: true });
+    const toolContext = {
+      sql: this.sql,
+      sessionId: null as string | null,
+      userId,
+      lang,
+      placementId: id,
+    };
+
+    const result = await runAgentLoop({
+      apiKey: this.env.ANTHROPIC_API_KEY,
+      systemPrompt: system,
+      messages: [{ role: "user", content: userContent }],
+      tools,
+      executeTool: (name, input) => executeTool(name, input, toolContext),
+      model: "claude-sonnet-4-6",
+      maxIterations: 5,
+    });
+
+    return Response.json({
+      success: true,
+      responseText: result.responseText,
+      toolCalls: result.toolCalls,
+    });
+  }
+
+  private async handlePlacementPhase3(placementIdStr: string): Promise<Response> {
+    const userId = this.getUserId();
+    const id = parseInt(placementIdStr, 10);
+    const runRows = [
+      ...this.sql.exec(
+        "SELECT id, lang, phase1_output FROM placement_run WHERE id = ? AND user_id = ?",
+        id,
+        userId,
+      ),
+    ];
+    const run = runRows[0] as Record<string, unknown> | undefined;
+    if (!run) return Response.json({ error: "Placement run not found" }, { status: 404 });
+    if (!run.phase1_output) return Response.json({ error: "Run phase1 first" }, { status: 400 });
+
+    const exRows = [
+      ...this.sql.exec(
+        "SELECT ordinal, prompt, type, user_answer FROM placement_exercises WHERE placement_id = ? ORDER BY ordinal ASC",
+        id,
+      ),
+    ];
+    const exercises = exRows.map((r) => ({
+      prompt: (r as Record<string, unknown>).prompt as string,
+      type: (r as Record<string, unknown>).type as string,
+      user_answer: (r as Record<string, unknown>).user_answer as string | null,
+    }));
+
+    const lang = run.lang as string;
+    const phase1Output = run.phase1_output as string;
+    const system = buildPlacementPhase3SystemPrompt(lang);
+    const userContent = buildPlacementPhase3UserMessage(phase1Output, exercises);
+
+    const tools = getTools({ includeProfileTools: true });
+    const toolContext = {
+      sql: this.sql,
+      sessionId: null as string | null,
+      userId,
+      lang,
+    };
+
+    const result = await runAgentLoop({
+      apiKey: this.env.ANTHROPIC_API_KEY,
+      systemPrompt: system,
+      messages: [{ role: "user", content: userContent }],
+      tools,
+      executeTool: (name, input) => executeTool(name, input, toolContext),
+      model: "claude-sonnet-4-6",
+      maxIterations: 15,
+    });
+
+    this.sql.exec(
+      "UPDATE placement_run SET status = 'completed', updated_at = datetime('now') WHERE id = ? AND user_id = ?",
+      id,
+      userId,
+    );
+
+    return Response.json({
+      success: true,
+      responseText: result.responseText,
+      summary: result.responseText,
     });
   }
 
@@ -346,7 +795,7 @@ export class TutorDO extends DurableObject<Env> {
         const offset = parseInt(url.searchParams.get("offset") ?? "0");
         if (!table) return Response.json({ error: "table required" }, { status: 400 });
         // Prevent SQL injection by whitelist-checking the table name
-        const validTables = ["events", "user_profile", "lang_profile", "concepts", "concepts_upcoming", "vocab", "lessons_upcoming", "sessions", "messages", "agent_actions"];
+        const validTables = ["events", "user_profile", "lang_profile", "concepts", "concepts_upcoming", "vocab", "lessons_upcoming", "sessions", "messages", "agent_actions", "placement_run", "placement_exercises"];
         if (!validTables.includes(table)) return Response.json({ error: "Invalid table" }, { status: 400 });
         const rows = [...this.sql.exec(`SELECT * FROM ${table} ORDER BY rowid DESC LIMIT ? OFFSET ?`, limit, offset)];
         const total = [...this.sql.exec(`SELECT COUNT(*) as cnt FROM ${table}`)][0] as { cnt: number } | undefined;

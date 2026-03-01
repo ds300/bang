@@ -368,6 +368,33 @@ export function getTools(options?: GetToolsOptions): ToolDefinition[] {
         },
       },
     },
+    {
+      name: "propose_placement_exercises",
+      description:
+        "Store the list of 6 placement validation exercises. Used by the placement onboarding agent after analysing highlights. Call with exactly 6 exercises.",
+      input_schema: {
+        type: "object" as const,
+        properties: {
+          exercises: {
+            type: "array",
+            items: {
+              type: "object",
+              properties: {
+                prompt: { type: "string", description: "Exercise prompt (e.g. sentence to translate)" },
+                type: {
+                  type: "string",
+                  enum: ["translation", "recognition"],
+                  description: "Exercise type",
+                },
+              },
+              required: ["prompt"],
+            },
+            description: "Exactly 6 exercises",
+          },
+        },
+        required: ["exercises"],
+      },
+    },
   ];
   if (includeProfileTools) return all;
   return all.filter((t) => !PROFILE_TOOL_NAMES.has(t.name));
@@ -378,6 +405,8 @@ export interface ToolExecutionContext {
   sessionId: string | null;
   userId: string;
   lang: string;
+  /** Set when running the placement onboarding agent; required for propose_placement_exercises. */
+  placementId?: number;
 }
 
 export function executeTool(
@@ -403,6 +432,7 @@ export function executeTool(
     plan_lessons: execPlanLessons,
     record_vocab: execRecordVocab,
     update_session: execUpdateSession,
+    propose_placement_exercises: execProposePlacementExercises,
   };
 
   const handler = handlers[name];
@@ -889,4 +919,37 @@ function execUpdateSession(
   });
 
   return JSON.stringify({ success: true });
+}
+
+function execProposePlacementExercises(
+  input: Record<string, unknown>,
+  ctx: ToolExecutionContext,
+): string {
+  if (ctx.placementId == null) {
+    return JSON.stringify({ error: "placementId required in context" });
+  }
+  const exercises = input.exercises as Array<{ prompt?: string; type?: string }>;
+  if (!Array.isArray(exercises) || exercises.length === 0) {
+    return JSON.stringify({ error: "exercises array required" });
+  }
+  const existing = [
+    ...ctx.sql.exec("SELECT id FROM placement_run WHERE id = ? AND user_id = ?", ctx.placementId, ctx.userId),
+  ];
+  if (existing.length === 0) {
+    return JSON.stringify({ error: "Placement run not found" });
+  }
+  const now = new Date().toISOString();
+  ctx.sql.exec("DELETE FROM placement_exercises WHERE placement_id = ?", ctx.placementId);
+  for (let i = 0; i < exercises.length; i++) {
+    const ex = exercises[i];
+    ctx.sql.exec(
+      "INSERT INTO placement_exercises (placement_id, ordinal, prompt, type, created_at) VALUES (?, ?, ?, ?, ?)",
+      ctx.placementId,
+      i + 1,
+      (ex?.prompt as string) ?? "",
+      (ex?.type as string) ?? "translation",
+      now,
+    );
+  }
+  return JSON.stringify({ success: true, count: exercises.length });
 }

@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState, useCallback } from "react";
+import { useNavigate } from "react-router-dom";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { apiFetch } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { MessageBubble } from "./MessageBubble";
 import { ChatInput } from "./ChatInput";
@@ -29,6 +31,7 @@ interface ChatProps {
 const NEAR_BOTTOM_THRESHOLD = 80;
 
 export function Chat({ session, audioEnabled, onToggleAudio, viewOnly = null, onSend }: ChatProps) {
+  const navigate = useNavigate();
   const viewportRef = useRef<HTMLElement | null>(null);
   const isNearBottom = useRef(true);
   const lang = viewOnly?.lang ?? session.lang;
@@ -38,6 +41,19 @@ export function Chat({ session, audioEnabled, onToggleAudio, viewOnly = null, on
     null,
   );
   const [breakdownContext, setBreakdownContext] = useState<string | null>(null);
+
+  const handleLangSelect = useCallback(
+    async (newLang: string) => {
+      const res = await apiFetch(`/api/lang-profile?lang=${encodeURIComponent(newLang)}`);
+      const data = (await res.json()) as { onboarded?: boolean };
+      if (data.onboarded) {
+        session.setLang(newLang);
+      } else {
+        navigate(`/onboard/${newLang}`);
+      }
+    },
+    [session, navigate],
+  );
 
   const messages = viewOnly?.messages ?? session.messages;
   const isViewingPast = !!viewOnly;
@@ -85,7 +101,7 @@ export function Chat({ session, audioEnabled, onToggleAudio, viewOnly = null, on
           <div className="flex items-center gap-3">
             <LanguagePicker
               currentLang={lang}
-              onSelect={session.setLang}
+              onSelect={handleLangSelect}
               disabled={session.sessionActive || isViewingPast}
             />
             {isViewingPast && (

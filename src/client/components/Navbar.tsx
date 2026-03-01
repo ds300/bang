@@ -22,6 +22,8 @@ interface NavbarProps {
   sessionActive: boolean;
   onStartSession: () => void;
   onEndSession: (discard?: boolean) => void;
+  /** Disable start when we're on a session URL but state not loaded yet (avoids creating duplicate sessions) */
+  disableStartSession?: boolean;
 }
 
 function formatSessionDate(iso: string): string {
@@ -43,6 +45,7 @@ export function Navbar({
   sessionActive,
   onStartSession,
   onEndSession,
+  disableStartSession = false,
 }: NavbarProps) {
   const [sessions, setSessions] = useState<SessionListItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -71,6 +74,7 @@ export function Navbar({
           sessionActive={sessionActive}
           onStartSession={onStartSession}
           onEndSession={onEndSession}
+          disableStart={disableStartSession}
         />
       </div>
 

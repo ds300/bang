@@ -114,6 +114,8 @@ export function TranslatableContent({
     underlinedRangesProp !== undefined
       ? underlinedRangesProp
       : internalUnderlinedRanges;
+  const underlinedRangesRef = useRef(underlinedRanges);
+  underlinedRangesRef.current = underlinedRanges;
   const setUnderlinedRanges = useCallback(
     (
       updater: (
@@ -121,12 +123,12 @@ export function TranslatableContent({
       ) => WordSelectableUnderlinedRange[]
     ) => {
       if (onUnderlinedRangesChange) {
-        onUnderlinedRangesChange(updater(underlinedRanges));
+        onUnderlinedRangesChange(updater(underlinedRangesRef.current));
       } else {
         setInternalUnderlinedRanges(updater);
       }
     },
-    [underlinedRanges, onUnderlinedRangesChange]
+    [onUnderlinedRangesChange]
   );
 
   const [selectionTooltip, setSelectionTooltip] = useState<{
